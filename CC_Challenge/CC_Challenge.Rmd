@@ -1,0 +1,1388 @@
+---
+title: "Cover crop class"
+output: html_document
+date: "2023-02-06"
+---
+
+Notes:
+Stephene Perry from Cornell Stats Consulting recommends against additional statistical tests on the Likert scale data (5/22/2023). So the confidence intervals for overall satisfaction and multi-site design are just for fun...
+
+#   Loading
+```{r}
+setwd("/Users/udm3/Library/CloudStorage/Box-Box/Cover Crops in Agroecosystems - Internal/Analysis")
+
+library(openxlsx)
+library(maps)
+library(likert)
+library(patchwork)
+library(janitor)
+library(tidyverse)
+library(ggstats)
+
+library(ggplot2); theme_set(theme_bw() + 
+                            theme(panel.grid = element_line(colour = "grey87"),
+                                  panel.grid.major = element_line(linewidth = rel(.95)), 
+                                  panel.grid.minor = element_line(linewidth = 0)))
+
+SurveyData_22 <- read.xlsx("2022 Data/CoverCropSurvey2022_Cleaned.xlsx", sheet = 1)
+SurveyData_23 <- read.xlsx("2023 Data/CoverCropSurvey2023_Cleaned.xlsx", sheet = 1)
+
+SurveyData_22$Year <- 2022
+SurveyData_23$Year <- 2023
+
+SurveyDataFull_Tmp <- bind_rows(SurveyData_22,SurveyData_23)
+
+#Which are not matches
+LogicTmp1 <- 
+  SurveyDataFull_Tmp %>% 
+    filter(Progress == "Progress") %>% 
+    select(Year, everything()) 
+LogicTmp2 <- LogicTmp1 %>% summarise_all(~all(. == .[[1]]))
+
+LogicTmp <- rbind(LogicTmp1, LogicTmp2)
+LogicTmp[which(LogicTmp[3,]==FALSE)] ## only the "in terms of learning" (2023) versus "favorite" for multi-site meetups. Not an issue for the cover crop challenge analysis!
+
+
+SurveyDataFull <- SurveyDataFull_Tmp[-45,] #removed headers from 2023 survey, IF THE NUMBER OF RESPONDERS CHANGE, YOU NEED  TO CHANGE THE ROW NUMBER!!!
+SurveyDataFull <- SurveyDataFull %>%  select(Year,everything())
+
+unique(SurveyDataFull$Q63)
+SurveyDataFull <- SurveyDataFull %>% 
+  mutate(region = case_when(
+    Q63 == "Cornell University" ~ "new york",
+    Q63 == "Clemson University" ~ "south carolina",
+    Q63 == "University of Nebraska" ~ "nebraska",
+    Q63 == "University of Kentucky" ~ "kentucky",
+    Q63 == "University of New Hampshire" ~ "new hampshire",
+    Q63 == "Michigan State University" ~ "michigan"))
+
+SurveyDataNamed <- SurveyDataFull
+colnames(SurveyDataNamed) <- SurveyDataNamed[1,]
+SurveyDataNamed <- SurveyDataNamed[-1,] 
+names(SurveyDataNamed)[names(SurveyDataNamed) == "2022"] <- "Year"
+```
+
+#   Map of students
+```{r}
+us_states <- map_data("state")
+
+univ_data <- data.frame(
+  university = c("Cornell", "Clemson", "UNL", 
+                 "UK", "UNH", "MSU"),
+  state = c("New York", "South Carolina", "Nebraska", "Kentucky", "New Hampshire", "Michigan"),
+  lon = c(-76.48, -82.83, -96.67, -84.5, -71.54, -84.55),
+  lat = c(42.45, 34.67, 40.82, 37.83, 43.2, 43.00))
+
+SurveyDataState <- SurveyDataFull[-1,] %>%
+  group_by(Year) %>% 
+  count(region) %>% 
+  arrange(n) %>% 
+  mutate(state = str_to_title(region)) %>% 
+  left_join(.,univ_data) %>% 
+  mutate(university = paste(university," ","(",n,")",sep = ""))
+
+SurveyDataNamed[,c(1,4)] %>% 
+  group_by(Year) %>% 
+  count()
+
+us_states <- map_data("state")
+
+Year.labs <- c("2022 (*n* = 43)", "2023 (*n* = 35)")
+names(Year.labs) <- c("2022", "2023")
+
+#MapPlot<-
+  ggplot(us_states,aes(long, lat)) +
+    geom_polygon(aes(group = group), fill = "grey95", color = "black",
+                 linewidth = .275)+
+    geom_point(data = univ_data, aes(x = lon, y = lat), color = "black", size = 2) +
+    ggrepel::geom_label_repel(data = SurveyDataState,
+                              aes(x = lon, y = lat, label = university),
+                              color = "black",box.padding = .6, label.padding = 0.3,
+                              fill = alpha("white",0.85)) +
+    coord_fixed(1.3)+
+    theme_void()+
+    theme(strip.text = ggtext::element_markdown(size = 18, hjust = 0.05))+
+    facet_wrap(~Year, nrow = 1,
+               labeller = labeller(Year = Year.labs))
+#ggsave("MapPlot.png",MapPlot, width = 7.4, height = 3.3, units = "in", dpi = 600)
+#ggsave("COMP_MapPlot.png",MapPlot, width = 7.4, height = 3.3, units = "in", dpi = 100)
+```
+
+#   Overall Satisfaction
+```{r}
+SurveyData_likert1 <- SurveyDataNamed[,c(1,4:13)]
+SurveyData_likert1[1:11] <- lapply(SurveyData_likert1[1:11], factor)
+SurveyData_likert1[3:11] <- lapply(SurveyData_likert1[3:11], factor,
+                                   levels = c("Strongly Disagree","Disagree",
+                                              "Unsure","Agree","Strongly Agree"))
+
+names(SurveyData_likert1)[2] <- "University"
+SurveyData_likert1 %>% 
+  count()
+
+# Get the current column names of the data frame
+SurveyData_likert1.col_names <- colnames(SurveyData_likert1)
+
+# Remove the string "As a result of taking this course I can" from each column name
+SurveyData_likert1.col_names_newTmp <- gsub("As a result of taking this course I can ", "",
+                                          SurveyData_likert1.col_names)
+SurveyData_likert1.col_names_newTmp <- str_to_sentence(SurveyData_likert1.col_names_newTmp)
+SurveyData_likert1.col_names_new <- gsub("\\.", "",SurveyData_likert1.col_names_newTmp)
+
+# Replace the original column names with the new names
+colnames(SurveyData_likert1) <- SurveyData_likert1.col_names_new
+
+# Plotting
+## Overall
+likert1.all <- likert(SurveyData_likert1[3:11]) 
+#Overall_Rev<-
+  plot(likert1.all, text.size=3.5,ordered = TRUE)+
+    labs(subtitle = "2022 and 2023 (n = 78)")+
+    scale_y_continuous(labels = abs, limits = c(-120, 135))+
+    theme(legend.title = element_blank(),
+          legend.position = "bottom",
+          legend.justification = 1)
+#ggsave("Overall_Rev.png", Overall_Rev, width = 6.55, height = 5.3, units = "in", dpi = 600)
+
+##Setting
+SurveyData_likert1 <- 
+  SurveyData_likert1 %>% 
+  mutate(Setting = case_when(
+    University %in% c("University of New Hampshire", "Michigan State University") ~ "Greenhouse (n = 35)",
+    University == "Cornell University" & Year == 2023 ~ "Greenhouse (n = 35)",
+    .default = "Greenhouse and Field (n = 43)"))
+
+gglikert(SurveyData_likert1, include = colnames(SurveyData_likert1[3:11]),
+         exclude_fill_values = "Unsure", sort = "none",
+         add_labels = FALSE, totals_fontface = "plain", totals_hjust = 0.2,
+         facet_cols = vars(Setting))+
+  geom_vline(xintercept = 0, color = "grey40")+
+  theme_minimal()+
+  scale_x_continuous(labels = function(x) scales::label_percent()(abs(x)), limits = c(-1.20, 1.35))+
+  theme(strip.text.x = element_text(size = 12, hjust = 0), 
+        legend.position = "bottom")
+```
+
+
+#   Lab effectivness
+Split up in terms of year because activities changed slightly (no Townhall, notice the two module 12s)
+```{r}
+SurveyData_binary1 <- SurveyDataNamed[,c(1,4,19:20)]
+
+FactorNames <- c("Module 1: CropScape and Web Soil Survey",
+                 "Module 2: Cover crop challenge: start",
+                 "Module 3: Cover crop emergence: seed size x planting depth",
+                 "Module 4: Cover crop ground cover: species x planting rate",
+                 "Module 5: Online mixture calculators",
+                 "Module 7: Soil health activities and exercises",
+                 "Module 8: Cover crop challenge: harvest and multifunctionality",
+                 "Module 9: Cover crop challenge: weighing samples",
+                 "Module 10: Cover crop innovations: introduction",
+                 "Module 11: Cover crop partial budgets",
+                 "Module 12: Town hall preparation",
+                 "Module 12: Cover crop adoption discussion",
+                 "Module 13: Cover crop innovations: presentations")
+
+
+unique(na.omit(SurveyData_binary1[,3])) %in% FactorNames #NA not present but that's okay
+unique(na.omit(SurveyData_binary1[,4])) %in% FactorNames #NA not present but that's okay
+
+SurveyData_binary1[1:4] <- lapply(SurveyData_binary1[1:4], factor)
+SurveyData_binary1[3:4] <- lapply(SurveyData_binary1[3:4], factor,
+                                   levels = c("Module 1: CropScape and Web Soil Survey",
+                                              "Module 2: Cover crop challenge: start",
+                                              "Module 3: Cover crop emergence: seed size x planting depth",
+                                              "Module 4: Cover crop ground cover: species x planting rate",
+                                              "Module 5: Online mixture calculators",
+                                              "Module 7: Soil health activities and exercises",
+                                              "Module 8: Cover crop challenge: harvest and multifunctionality",
+                                              "Module 9: Cover crop challenge: weighing samples",
+                                              "Module 10: Cover crop innovations: introduction",
+                                              "Module 11: Cover crop partial budgets",
+                                              "Module 12: Town hall preparation",
+                                              "Module 12: Cover crop adoption discussion",
+                                              "Module 13: Cover crop innovations: presentations"),
+                                  labels = c("Module 1: CropScape and Web Soil Survey",
+                                              "Module 2: Cover crop challenge: Start",
+                                              "Module 3: Cover crop emergence: Seed size x planting depth",
+                                              "Module 4: Cover crop ground cover: Species x planting rate",
+                                              "Module 5: Online mixture calculators",
+                                              "Module 7: Soil health activities and exercises",
+                                              "Module 8: Cover crop challenge: Harvest and multifunctionality",
+                                              "Module 9: Cover crop challenge: Weighing samples",
+                                              "Module 10: Cover crop innovations: Introduction",
+                                              "Module 11: Cover crop partial budgets",
+                                              "Module 12: Town hall preparation",
+                                              "Module 12: Cover crop adoption discussion",
+                                              "Module 13: Cover crop innovations: Presentations"))
+
+names(SurveyData_binary1)[2] <- "University"
+names(SurveyData_binary1)[3] <- "MostEffective"
+names(SurveyData_binary1)[4] <- "LeastEffective"
+
+#Plotting----
+#In 2022 we didn't have the Cover crop adoption discussion, in 2023 we didn't have the Town hall preparation
+SurveyData_binary1.FullOverall.a<-
+  SurveyData_binary1 %>% 
+    group_by(Year) %>% 
+    count(MostEffective,.drop = FALSE) %>% 
+    drop_na(MostEffective) %>% 
+    rename(Module = MostEffective, MostEffective = n) %>% 
+    filter(Year == 2022 & !Module == "Module 12: Cover crop adoption discussion" |
+           Year == 2023 & !Module == "Module 12: Town hall preparation") %>% 
+    mutate(Pct_Most = MostEffective/sum(MostEffective))
+
+SurveyData_binary1.FullOverall.b<-
+  SurveyData_binary1 %>% 
+    group_by(Year) %>% 
+    count(LeastEffective,.drop = FALSE) %>% 
+    drop_na(LeastEffective) %>% 
+    rename(Module = LeastEffective, LeastEffective = n) %>% 
+    filter(Year == 2022 & !Module == "Module 12: Cover crop adoption discussion" |
+           Year == 2023 & !Module == "Module 12: Town hall preparation") %>% 
+    mutate(Pct_Least = -1*LeastEffective/sum(LeastEffective))
+
+SurveyData_binary1.FullOverallTmp <- full_join(SurveyData_binary1.FullOverall.a,
+                                               SurveyData_binary1.FullOverall.b)
+
+SurveyData_binary1.FullOverall <-
+  SurveyData_binary1.FullOverallTmp %>% 
+    select(-c(MostEffective,LeastEffective)) %>% 
+    pivot_longer(c(Pct_Most,Pct_Least), names_to = "Response",values_to = "Pct") %>% 
+    mutate(Year.Mod = paste(Year,Module,sep = "."))
+
+#LabValues created to order values in the plot
+LabValues <- SurveyData_binary1.FullOverall %>% 
+  group_by(Year,Module) %>% 
+  summarise(Pct_Most = sum(Pct[Pct > 0],na.rm = TRUE)*100,
+            Pct_Least = sum(Pct[Pct < 0],na.rm = TRUE)*100) %>% 
+  mutate(Year.Mod = paste(Year,Module,sep = ".")) %>% 
+  arrange(Year,Pct_Most,Pct_Least)
+
+SurveyData_binary1.FullOverall$Year.Mod <-
+  factor(SurveyData_binary1.FullOverall$Year.Mod,
+         levels = LabValues$Year.Mod)
+#LabPlot <-
+  SurveyData_binary1.FullOverall %>% 
+    mutate(Pct = Pct*100) %>% 
+  ggplot(., aes(Year.Mod,Pct,fill=Response))+
+    coord_flip()+
+    geom_bar(stat = "identity")+
+    geom_text(aes(x = Year.Mod,y= if_else(Response == "Pct_Least",-42,42),
+                  label=paste(abs(round(Pct,0)),"%")))+
+    geom_hline(yintercept=0, color = "black", linewidth=.2)+
+    labs(x = NULL,y = "Percentage", fill = NULL)+
+    scale_x_discrete(labels = function(x) gsub(".*?(\\d+:)", "", x))+
+    scale_fill_discrete(labels = c("Least effective", "Most effective"))+
+    ylim(-50,50)+
+    theme(legend.position = "bottom")+
+    facet_wrap(~Year, nrow = 2, scales = "free_y")
+#ggsave("LabPlot.svg",LabPlot,width = 5.12, height = 5.95, units = "in", dpi = 600)
+
+#Table----
+#How is CCC capitalized?
+unique(SurveyData_binary1$MostEffective) #Cover crop challenge
+unique(SurveyData_binary1$LeastEffective) #Cover crop challenge
+
+SurveyData_binary1_Tab1 <- data.frame(table(SurveyData_binary1$MostEffective,SurveyData_binary1$Year))
+#In 2022 we didn't have the Cover crop adoption discussion, in 2023 we didn't have the Town hall preparation
+SurveyData_binary1_Tab1 <- SurveyData_binary1_Tab1 %>% 
+    filter(Var2 == 2022 & !Var1 == "Module 12: Cover crop adoption discussion" |
+           Var2 == 2023 & !Var1 == "Module 12: Town hall preparation")
+
+
+SurveyData_binary1_Tab2 <-
+  SurveyData_binary1_Tab1 %>% 
+    group_by(Var2) %>% 
+    mutate(n_year = sum(Freq),
+           Prop = Freq/n_year*100) %>% 
+    rename(Module = Var1, Year = Var2) %>% 
+    mutate(Module = gsub(".*?(\\d+:) ", "", Module)) %>% 
+    select(Year,Module,everything()) %>% 
+    ungroup()
+
+SurveyData_binary1_Tab2 %>% 
+  mutate(CCC = 
+           case_when(str_detect(Module, "Cover crop challenge") == 
+                       TRUE ~ as.character("Cover crop challenge"),
+                     .default = as.character("Not CCC"))) %>% 
+  group_by(Year,CCC) %>% 
+  summarise(MeanEff = mean(Prop))
+
+LabTab<-
+  SurveyData_binary1_Tab2 %>% 
+    mutate(CCC = 
+             case_when(str_detect(Module, "Cover crop challenge") == 
+                         TRUE ~ as.character(Module),
+                       .default = as.character("Not CCC"))) %>% 
+    group_by(Year,CCC) %>% 
+    summarise(MeanEff = round(mean(Prop),0))
+
+#write.xlsx(LabTab, "LabTab.xlsx")
+```
+
+
+#   Multi-site activity
+- Years split because question format was slightly different and three of the activities were different
+```{r}
+SurveyData_binary2 <- SurveyDataNamed[,c(1,4,21:22)]
+SurveyData_binary2[1:4] <- lapply(SurveyData_binary2[1:4], factor)
+
+names(SurveyData_binary2)[2] <- "University"
+names(SurveyData_binary2)[3] <- "MostEffective"
+names(SurveyData_binary2)[4] <- "LeastEffective"  
+
+Binary2Levels <-
+  as_tibble(as.character(unique(c(SurveyData_binary2$MostEffective,SurveyData_binary2$LeastEffective)))) %>% 
+    na.omit() %>% 
+    arrange(as.numeric(str_extract(value, "^\\d+")))
+
+Binary2Labels <-
+  Binary2Levels %>% 
+  mutate(value = str_remove(value, ".*\\.\\s"))
+
+SurveyData_binary2[3:4] <- lapply(SurveyData_binary2[3:4], factor,
+                                  levels = Binary2Levels$value,
+                                  labels = Binary2Labels$value)
+
+#Plotting----
+#In 2022 we didn't have "Farmer panel on nutrient cycling" (8), "Cover crop adoption panel" (11), or "Student innovator presentations" (12)
+#In 2023 we didn't have the "Cover crops and soil N" (8), "Town hall role-playing" (11), or "Innovator presentations" (12)
+SurveyData_binary2.FullOverall.a <-
+  SurveyData_binary2 %>% 
+    group_by(Year) %>% 
+    count(MostEffective,.drop = FALSE) %>% 
+    drop_na(MostEffective) %>% 
+    rename(Module = MostEffective, MostEffective = n) %>% 
+    filter(Year == 2022 & !Module == "Farmer panel on nutrient cycling" & !Module == "Cover crop adoption panel" & !Module == "Student innovator presentations"|
+           Year == 2023 & !Module == "Cover crops and soil N" & !Module == "Town hall role-playing" & !Module == "Innovator presentations") %>%   
+    mutate(Pct_Most = MostEffective/sum(MostEffective),
+           YearTotal = sum(MostEffective))
+
+SurveyData_binary2.FullOverall.b <-
+  SurveyData_binary2 %>% 
+    group_by(Year) %>% 
+    count(LeastEffective,.drop = FALSE) %>% 
+    drop_na(LeastEffective) %>% 
+    rename(Module = LeastEffective, LeastEffective = n) %>% 
+    filter(Year == 2022 & !Module == "Farmer panel on nutrient cycling" & !Module == "Cover crop adoption panel" & !Module == "Student innovator presentations"|
+           Year == 2023 & !Module == "Cover crops and soil N" & !Module == "Town hall role-playing" & !Module == "Innovator presentations") %>%   
+    mutate(Pct_Least = -1*LeastEffective/sum(LeastEffective),
+           YearTotal = sum(LeastEffective))
+
+SurveyData_binary2.FullOverallTmp <- full_join(SurveyData_binary2.FullOverall.a,
+                                               SurveyData_binary2.FullOverall.b,
+                                               by = c("Year", "Module"))
+
+SurveyData_binary2.FullOverall <-
+  SurveyData_binary2.FullOverallTmp %>% 
+    select(-c(MostEffective,LeastEffective)) %>% 
+    pivot_longer(c(Pct_Most,Pct_Least), names_to = "Response",values_to = "Pct") %>% 
+    mutate(Year.Mod = paste(Year,Module,sep = "."))
+
+#LabValues created to order values in the plot
+LabValues_Multi <- SurveyData_binary2.FullOverall %>% 
+  group_by(Year,Module) %>% 
+  summarise(Pct_Most = sum(Pct[Pct > 0],na.rm = TRUE)*100,
+            Pct_Least = sum(Pct[Pct < 0],na.rm = TRUE)*100) %>% 
+  mutate(Year.Mod = paste(Year,Module,sep = ".")) %>% 
+  arrange(Year,Pct_Most,Pct_Least)
+
+SurveyData_binary2.FullOverall$Year.Mod <-
+  factor(SurveyData_binary2.FullOverall$Year.Mod,
+         levels = LabValues_Multi$Year.Mod)
+
+# Function to remove period AND capitalize after colon. Done to match figure from lab.
+capitalize_after_colon <- function(x) {
+  x <- gsub(".*?\\.", "", x)
+  x <- gsub("(?<=:)(\\s*[a-z])", "\\U\\1", x, perl = TRUE)
+  return(x)
+}
+
+SurveyData_binary2.FullOverall %>% 
+  mutate(Pct = Pct*100,
+         Year.Mod = fct_recode(Year.Mod,
+                               "2022.Cover crop challenge: results" = "2022.cover crop challenge results",
+                               "2023.Cover crop challenge: results" = "2023.cover crop challenge results")) %>% 
+ggplot(., aes(Year.Mod,Pct,fill=Response))+
+  coord_flip()+
+  geom_bar(stat = "identity")+
+  geom_text(aes(x = Year.Mod,y= if_else(Response == "Pct_Least",-52,42),
+                label=paste(abs(round(Pct,0)),"%")))+
+  geom_hline(yintercept=0, color = "black", linewidth=.2)+
+  labs(x = NULL,y = "Percentage", fill = NULL)+
+  scale_x_discrete(labels = capitalize_after_colon)+
+  scale_fill_discrete(labels = c("Least effective", "Most effective"))+
+  ylim(-60,50)+
+  theme(legend.position = "bottom")+
+  facet_wrap(~Year, nrow = 2, scales = "free_y")
+
+#Table----
+#How is CCC capitalized?
+unique(SurveyData_binary2$MostEffective) #cover crop challenge
+unique(SurveyData_binary2$LeastEffective) #cover crop challenge
+
+SurveyData_binary2_Tab1 <- data.frame(table(SurveyData_binary2$MostEffective,SurveyData_binary2$Year))
+
+#In 2022 we didn't have "Farmer panel on nutrient cycling" (8), "Cover crop adoption panel" (11), or "Student innovator presentations" (12)
+#In 2023 we didn't have the "Cover crops and soil N" (8), "Town hall role-playing" (11), or "Innovator presentations" (12)
+SurveyData_binary2_Tab1 <- SurveyData_binary2_Tab1 %>% 
+ filter(Var2 == 2022 & !Var1 == "Farmer panel on nutrient cycling" & !Var1 == "Cover crop adoption panel" & !Var1 == "Student innovator presentations"|
+           Var2 == 2023 & !Var1 == "Cover crops and soil N" & !Var1 == "Town hall role-playing" & !Var1 == "Innovator presentations")
+
+SurveyData_binary2_Tab2 <-
+  SurveyData_binary2_Tab1 %>% 
+    group_by(Var2) %>% 
+    mutate(n_year = sum(Freq),
+           Prop = Freq/n_year*100) %>% 
+    rename(Module = Var1, Year = Var2) %>% 
+    mutate(Module = gsub(".*?(\\d+:) ", "", Module)) %>% 
+    select(Year,Module,everything()) %>% 
+    ungroup()
+
+SurveyData_binary2_Tab2 %>% 
+  mutate(CCC = 
+           case_when(str_detect(Module, "cover crop challenge") == 
+                       TRUE ~ as.character("cover crop challenge"),
+                     .default = as.character("Not CCC"))) %>% 
+  group_by(Year,CCC) %>% 
+  summarise(MeanEff = mean(Prop))
+
+ActTab<-
+  SurveyData_binary2_Tab2 %>% 
+    mutate(CCC = 
+             case_when(str_detect(Module, "cover crop challenge") == 
+                         TRUE ~ as.character(Module),
+                       .default = as.character("Not CCC"))) %>% 
+    group_by(Year,CCC) %>% 
+    summarise(MeanEff = round(mean(Prop),0))
+#write.xlsx(ActTab,"ActTab.xlsx")
+```
+
+#   Cover crop activity
+```{r}
+SurveyData_likert3 <- SurveyDataNamed[,c(1,4,24:30)]
+SurveyData_likert3[1:9] <- lapply(SurveyData_likert3[1:9], factor)
+SurveyData_likert3[3:9] <- lapply(SurveyData_likert3[3:9], factor,
+                                   levels = c("Strongly Disagree","Disagree",
+                                              "Unsure","Agree","Strongly Agree"))
+
+names(SurveyData_likert3)[2] <- "University"
+SurveyData_likert3 %>% 
+  count(Year)
+
+# Get the current column names of the data frame
+SurveyData_likert3.col_names <- colnames(SurveyData_likert3)
+
+# Remove the string "As a result of taking this course I can" from each column name
+SurveyData_likert3.col_names_newTmp <- gsub("Indicate your level of agreement or disagreement with the following statements relating to the cover crop challenge: - ",
+                                            "", SurveyData_likert3.col_names)
+SurveyData_likert3.col_names_newTmp <- str_to_sentence(SurveyData_likert3.col_names_newTmp) #Sentence case
+SurveyData_likert3.col_names_newTmp <- gsub("\\.", "",SurveyData_likert3.col_names_newTmp) #Remove periods
+SurveyData_likert3.col_names_newTmp <- str_replace_all(SurveyData_likert3.col_names_newTmp,"excel","Excel") #uppercase Excel
+SurveyData_likert3.col_names_new <- str_replace_all(SurveyData_likert3.col_names_newTmp,"cover crop challenge","Cover Crop Challenge") #uppercase CCC
+
+# Replace the original column names with the new names
+colnames(SurveyData_likert3) <- SurveyData_likert3.col_names_new
+colnames(SurveyData_likert3)[9] <- "As a result of this activity, I can more confidently convert values to different units" #capitalizing the "I"
+
+# Ploting
+##  Overall
+likert3.Overall <- likert(SurveyData_likert3[3:9]) 
+#CCC_Rev<-
+  plot(likert3.Overall, text.size=3.5,group.order = colnames(SurveyData_likert3)[3:9])+
+    labs(subtitle = expression(paste("2022 and 2023 (",italic(n), " = 78)")))+
+    scale_y_continuous(labels = abs, limits = c(-115, 120))+
+    theme(legend.title = element_blank(),
+          legend.position = "bottom",
+          legend.justification = 1)
+
+#ggsave("CCC_Rev.png", CCC_Rev, width = 6.55, height = 5, units = "in", dpi = 600)
+
+##Split
+SurveyData_likert3 <- 
+  SurveyData_likert3 %>% 
+  mutate(Setting = case_when(
+    University %in% c("University of New Hampshire", "Michigan State University") ~ "Field-only (*n* = 35)",
+    University == "Cornell University" & Year == 2023 ~ "Field-only (*n* = 35)",
+    .default = "Greenhouse and field (*n* = 43)")) %>% 
+  select(1:7,9,8,everything()) #just reodering
+
+CCC_Rev_split <-  
+  gglikert(SurveyData_likert3, include = colnames(SurveyData_likert3[3:9]),
+           exclude_fill_values = "Unsure",
+           sort = "none",
+           add_labels = FALSE, totals_fontface = "plain", totals_hjust = 0.2,
+           facet_cols = vars(Setting))+
+  geom_vline(xintercept = 0, color = "grey40")+
+  scale_x_continuous(labels = function(x) scales::label_percent()(abs(x)), limits = c(-1.20, 1.35))+
+  scale_fill_likert(labels = c("Strongly disagree","Disagree","Agree","Strongly agree"))+
+  theme_minimal()+
+  theme(strip.text.x = ggtext::element_markdown(size = 12, hjust = 0),
+        legend.position = "bottom",
+        panel.border = element_rect(color = "black", fill = NA, size = .5))
+#ggsave("CCC_Rev_Split.png", CCC_Rev_split, width = 8.35, height = 4.45, units = "in", dpi = 600)
+
+##Years
+SurveyData_likert3.22<-SurveyData_likert3 %>% 
+  filter(Year == "2022")
+likert3.22 <- likert(SurveyData_likert3.22[3:9]) 
+
+likert3.22Plot <-
+  plot(likert3.22, group.order = colnames(SurveyData_likert3.22)[3:9])+
+    labs(subtitle = "2022 (n = 43)")+
+    scale_y_continuous(labels = abs, limits = c(-120, 135))+
+    theme(legend.title = element_blank(),
+          legend.position = "bottom")
+
+SurveyData_likert3.23<-SurveyData_likert3 %>% 
+  filter(Year == "2023")
+likert3.23 <- likert(SurveyData_likert3.23[3:9]) 
+
+likert3.23Plot <-
+  plot(likert3.23, group.order = colnames(SurveyData_likert3.23)[3:9])+
+    labs(subtitle = "2023 (n = 35)")+
+    scale_y_continuous(labels = abs, limits = c(-120, 135))+
+    theme(legend.title = element_blank(),
+          legend.position = "bottom")
+
+likert3.Leg <- ggpubr::get_legend(plot(likert3.23)+
+                                    theme(legend.title = element_blank()))
+likert3.Leg <- ggpubr::as_ggplot(likert3.Leg)
+
+likert3_patch1<-likert3.22Plot/likert3.23Plot+
+  plot_layout(guides = "collect", axes = "collect") &
+  theme(legend.position = "none")
+
+likert3_patch2 <- likert3.Leg+plot_spacer()+
+    plot_layout(widths = c(0,8005))
+
+#547 x 698
+likert3_patch1/plot_spacer()/likert3_patch2+
+  plot_layout(nrow = 4,heights = c(1,1,0,.07))
+
+#Table
+#SurveyData_likert3_Table<-
+ # SurveyData_likert3 %>% 
+  #  pivot_longer(2:8,names_to = "Question",values_to = "LikertValue") %>% 
+   # count(Question, University, LikertValue, .drop = F) %>% 
+    #mmtable2::mmtable(.,n) + 
+     #   header_top(Question) +
+      #  header_left(LikertValue) + 
+       # header_left_top(University)
+#SurveyData_likert3_Table
+
+###Natasha
+ValueSpread <-
+  SurveyData_likert3 %>% 
+  select(Year, University, 3) %>% 
+  drop_na() %>% 
+  mutate(Manditory = case_when(University == "Cornell University"|
+                          University == "University of New Hampshire" & Year == 2023 ~ "Yes",
+                          .default = "No"))
+
+ggplot(ValueSpread, aes(Manditory, `The Cover Crop Challenge was a valuable activity`))+
+  coord_flip()+
+  geom_jitter(width = 0.10, height = 0.12)+
+  labs(title=(expression(paste("Was the survey ",bold("manditory"), "?"))),
+       subtitle = "Students that were not forced to take the survey could be bias to\nonly respond if they felt strongly about the cover crop challenge")+
+  theme(axis.title.y = element_blank(),
+        plot.subtitle = element_text(size = rel(.9)))
+```
+
+#   Cover crop ratings
+```{r}
+SurveyData_Growth <- SurveyDataNamed[,c(1,4,32)]
+colnames(SurveyData_Growth)[3] <- "GrowthRating"
+colnames(SurveyData_Growth)[2] <- "University"
+
+SurveyData_Growth<-
+  SurveyData_Growth %>% 
+    mutate(GrowthRating = dplyr::recode(GrowthRating, "1 (poor)" = "1", "5 (excellent)" = "5")) %>% 
+    filter(!is.na(GrowthRating))
+
+SurveyData_Growth$GrowthRating <- as.numeric(as.character(SurveyData_Growth$GrowthRating))
+
+ggplot(SurveyData_Growth, aes(x = GrowthRating, y = University)) +
+  ggridges::geom_density_ridges(aes(fill = University, alpha = .5)) +
+  labs(x = "Cover crop growth rating",y=NULL)+
+  scale_x_continuous(breaks = c(1,2,3,4,5), labels = c("1\n(poor)",2,3,4,"5\n(excellent)"))+
+  scale_y_discrete(limits=rev)+
+  viridis::scale_fill_viridis(discrete = TRUE, begin = .1, end = .9)+
+  expand_limits(y = 8)+
+  theme(legend.position = "none")+
+  facet_wrap(~Year)
+
+  ggplot(SurveyData_Growth, aes(x = GrowthRating, fill = TRUE,color = NA)) +
+    geom_density(aes(alpha = 0.5),color = NA)+
+    labs(x = "Student cover crop growth rating", y="Density")+
+    scale_x_continuous(breaks = c(1,2,3,4,5), labels = c("1\n(poor)",2,3,4,"5\n(excellent)"))+
+    scale_fill_manual(values = "#6165A0")+
+    theme(legend.position = "none",
+          axis.title.y = element_text(angle = 0,vjust = .5),
+          plot.margin = unit(c(5.5, 12.5, 5.5, 5.5), "points"))
+
+RatingsDens <-
+  ggplot(SurveyData_Growth, aes(x = GrowthRating))+
+    geom_histogram(aes(y = stat(count / sum(count))),
+                   alpha = 0.65, color = "black",binwidth = 1)+
+    scale_y_continuous(labels = scales::percent_format())+
+    labs(x = "Student cover crop growth rating", y="Proportion\nof responses")+
+    scale_x_continuous(breaks = c(1,2,3,4,5), labels = c("1\n(poor)",2,3,4,"5\n(excellent)"))+
+    theme(axis.title.y = element_text(angle = 0,vjust = .5, hjust = 0),
+          plot.margin = unit(c(5.5, 12.5, 5.5, 5.5), "points"))
+
+SurveyData_Growth_sep <-
+  SurveyData_Growth %>% 
+  mutate(Setting = case_when(
+    University %in% c("University of New Hampshire", "Michigan State University") ~ "Field-only (*n* = 35)",
+    University == "Cornell University" & Year == 2023 ~ "Field-only (*n* = 35)",
+    .default = "Greenhouse and field (*n* = 43)"))
+
+RatingsDens_sep <-
+  ggplot(SurveyData_Growth_sep, aes(x = GrowthRating))+
+    geom_histogram(aes(y = stat(count / sum(count))),
+                   alpha = 0.65, color = "black",binwidth = 1)+
+    scale_y_continuous(labels = scales::percent_format())+
+    labs(x = "Student cover crop growth rating", y="Proportion\nof responses")+
+    scale_x_continuous(breaks = c(1,2,3,4,5), labels = c("1\n(poor)",2,3,4,"5\n(excellent)"))+
+    facet_wrap(~Setting)+
+    theme_minimal()+
+    theme(axis.title.y = element_text(angle = 0,vjust = .5, hjust = 0),
+          panel.spacing = unit(1, "lines"),
+          strip.text.x = ggtext::element_markdown(size = 11, hjust = 0),
+          panel.border = element_rect(color = "black", fill = NA, size = .5))
+```
+
+#Correlations
+```{r set up}
+SurveyData_Corr <- SurveyDataNamed[,c(1,4:13,24:30,32)] #taking from overall, cov. crop challenge, and ratings
+
+#Modifying column names
+colnames(SurveyData_Corr)[2] <- "University"
+
+SurveyData_Corr.col_names <- colnames(SurveyData_Corr)
+
+SurveyData_Corr.col_names.new <- gsub("As a result of taking this course I can ", "",
+                                      SurveyData_Corr.col_names)
+SurveyData_Corr.col_names.new <- gsub("Indicate your level of agreement or disagreement with the following statements relating to the cover crop challenge: - ","",SurveyData_Corr.col_names.new)
+SurveyData_Corr.col_names.new <- str_to_sentence(SurveyData_Corr.col_names.new)
+SurveyData_Corr.col_names.new <- gsub("i(?=\\s|\\.|$)", "I", SurveyData_Corr.col_names.new, perl = TRUE)
+SurveyData_Corr.col_names.new <- gsub("\\.", "",SurveyData_Corr.col_names.new)
+colnames(SurveyData_Corr) <- SurveyData_Corr.col_names.new
+
+colnames(SurveyData_Corr)[19] <- "GrowthRating"
+
+#Modifying column types
+SurveyData_Corr[1:18] <- lapply(SurveyData_Corr[1:18], factor)
+SurveyData_Corr[3:18] <- lapply(SurveyData_Corr[3:18], factor,
+                                   levels = c("Strongly Disagree","Disagree",
+                                              "Unsure","Agree","Strongly Agree"))
+SurveyData_Corr<-
+  SurveyData_Corr %>% 
+    mutate(GrowthRating = dplyr::recode(GrowthRating, "1 (poor)" = "1", "5 (excellent)" = "5"))
+SurveyData_Corr$GrowthRating <- as.numeric(as.character(SurveyData_Corr$GrowthRating))
+
+str(SurveyData_Corr) #looks good!
+
+SurveyData_Corr2 <-SurveyData_Corr
+
+SurveyData_Corr2[3:18] <- lapply(SurveyData_Corr2[3:18], as.numeric) #Numeric worked because of factor leveling, 5 is "Strongly agree" and 1 is "Strongly disagree" - confirmed March 6, 2024
+
+#Rename columns to NOT have special charterers
+SurveyData_Corr2 <- 
+  SurveyData_Corr2 %>% 
+  rename("Discuss the potential long term benefits of cover crops" = "Discuss the potential long-term benefits of cover crops",
+         "Explain how cover crop management influences agronomic and environmental outcomes"  = "Explain how cover crop management (eg, seeding time and termination method) influences agronomic and environmental outcomes",
+         "I have increased knowledge of how environmental conditions affect performance of individual species in a mixture" = "I have increased knowledge of how environmental conditions (temperature and moisture) affect performance of individual species in a mixture")
+```
+
+```{r overall}
+library(ggpubr)
+
+#Assumptions----
+NorTestFun <- function(z) {
+  TestVal <- shapiro.test(SurveyData_Corr2[,z])$p.value
+  data.frame(Question = colnames(SurveyData_Corr2)[z], shapiro.test.value = TestVal,
+             row.names = NULL)}
+
+shapiro.test.results <- sapply(c(12,3:9),NorTestFun,simplify = FALSE)
+shapiro.test.result_df <- do.call(rbind, shapiro.test.results)
+
+#Significance show that I don't have normally distributed data and should use a kendall's correlation
+shapiro.test.result_df %>% 
+  mutate(Sig = if_else(shapiro.test.value < 0.05, "*",""))
+
+qqplotFun <- function(z) {ggqqplot(SurveyData_Corr2[,z])}
+sapply(c(12,3:9),function(z) {ggqqplot(SurveyData_Corr2[,z])})
+qqplotFun(12)
+
+#Plot----
+CorrPlotFun <- function(z){
+  ggscatter(SurveyData_Corr2, x = colnames(SurveyData_Corr2)[12], y = colnames(SurveyData_Corr2)[z],
+            add = "reg.line", conf.int = TRUE,
+            cor.coef = TRUE, cor.method = "kendall",
+            ggtheme = theme_get())+
+      geom_jitter(size = .75,width = 0.05, height = .05)+
+      scale_x_continuous(breaks = c(1,2,3,4,5))+
+      scale_y_continuous(breaks = c(1,2,3,4,5))+
+      labs(x = str_wrap(colnames(SurveyData_Corr2)[12], width = 30),
+           y = str_wrap(colnames(SurveyData_Corr2)[z], width = 25))+
+      theme(axis.title.x = element_blank(),
+            axis.title.y = element_text(hjust = 0))
+}
+
+CorrPlotFun2 <- function(z){
+  ggscatter(SurveyData_Corr2, x = colnames(SurveyData_Corr2)[12], y = colnames(SurveyData_Corr2)[z],
+            add = "reg.line", conf.int = TRUE, 
+            cor.coef = TRUE, cor.method = "kendall",
+            ggtheme = theme_get())+
+      geom_jitter(size = .75,width = 0.05, height = .05)+
+      scale_x_continuous(breaks = c(1,2,3,4,5))+
+      scale_y_continuous(breaks = c(1,2,3,4,5))+
+      labs(x = str_wrap(colnames(SurveyData_Corr2)[12], width = 25),
+           y = str_wrap(colnames(SurveyData_Corr2)[z], width = 25))+
+      theme(axis.title.x = element_text(hjust = 0),
+            axis.title.y = element_text(hjust = 0))}
+
+CorrPlotFun(3) + CorrPlotFun(4) + CorrPlotFun(5)+
+CorrPlotFun(6) + CorrPlotFun(7) + CorrPlotFun(8)+
+CorrPlotFun2(9) + CorrPlotFun2(10) + CorrPlotFun2(11)+
+  plot_layout(nrow = 3)
+
+
+#Class outcomes----
+ggscatter(SurveyData_Corr2, x = colnames(SurveyData_Corr2)[12], y = colnames(SurveyData_Corr2)[6],
+            add = "reg.line", conf.int = TRUE, cor.method = "kendall",
+            ggtheme = theme_get())+
+      stat_cor(method = "kendall",cor.coef.name = "tau[b]",label.y.npc = .85)+
+      geom_jitter(size = .75,width = 0.08, height = .07)+
+      scale_x_continuous(breaks = c(1,2,3,4,5))+
+      scale_y_continuous(breaks = c(1,2,3,4,5))+
+      labs(x = str_wrap(colnames(SurveyData_Corr2)[12], width = 40),
+           y = str_wrap(colnames(SurveyData_Corr2)[6], width = 20))+
+      theme(axis.title.y = element_text(angle = 0,vjust = .5,hjust = 0))
+
+#Table----
+CorrTableFun <- function(z){
+  p_tmp <- cor.test(SurveyData_Corr2[,12], SurveyData_Corr2[,z],
+                    method = "kendall", alternative = "two.sided")$p.value
+  r_tmp <- cor.test(SurveyData_Corr2[,12], SurveyData_Corr2[,z],
+                    method = "kendall", alternative = "two.sided")$estimate
+  data.frame(Outcome = colnames(SurveyData_Corr2)[z], correlation = r_tmp, p.value = p_tmp,
+             row.names = NULL)}
+
+results <- sapply(3:11,CorrTableFun,simplify = FALSE)
+result_df <- do.call(rbind, results)
+#write.xlsx(result_df, "corrRes.xlsx")
+```
+
+```{r CCC}
+colnames(SurveyDataNamed[24:30])
+colnames(SurveyData_Corr2)
+
+CorrPlotFun(13) + CorrPlotFun(14) + CorrPlotFun(15) +
+CorrPlotFun2(16) + CorrPlotFun2(17) + CorrPlotFun2(18)+
+  plot_layout(nrow = 2)
+
+results2 <- sapply(13:18,CorrTableFun,simplify = FALSE)
+result2_df <- do.call(rbind, results2)
+#write.xlsx(result2_df, "corrRes2.xlsx")
+
+#CCC outcomes----
+ggscatter(SurveyData_Corr2, y = colnames(SurveyData_Corr2)[12], x = colnames(SurveyData_Corr2)[13],
+            add = "reg.line", conf.int = TRUE, cor.method = "kendall",
+            ggtheme = theme_get())+
+      stat_cor(method = "kendall",cor.coef.name = "tau[b]",label.y.npc = .925)+
+      geom_jitter(size = .75,width = 0.08, height = .07)+
+      scale_x_continuous(breaks = c(1,2,3,4,5))+
+      scale_y_continuous(breaks = c(1,2,3,4,5))+
+      labs(y = str_wrap(colnames(SurveyData_Corr2)[12], width = 20),
+           x = str_wrap(colnames(SurveyData_Corr2)[13], width = 40))+
+      theme(axis.title.y = element_text(angle = 0,vjust = .5,hjust = 0))
+
+#Rating----
+#Check name
+colnames(SurveyData_Corr2)[12] #y= "The cover crop challenge was a valuable activity" 
+colnames(SurveyData_Corr2)[19] #x = "GrowthRating"
+
+RatingCor <-
+  ggscatter(SurveyData_Corr2, y = colnames(SurveyData_Corr2)[12], x = colnames(SurveyData_Corr2)[19],
+              add = "reg.line", conf.int = TRUE,cor.method = "kendall",
+              ggtheme = theme_get())+
+        stat_cor(method = "kendall",cor.coef.name = "tau[b]",label.y.npc = .925)+
+        geom_jitter(size = .75,width = 0.08, height = .07)+
+        scale_x_continuous(breaks = c(1,2,3,4,5),labels = c("1\n(poor)",2,3,4,"5\n(excellent)"))+
+        scale_y_continuous(breaks = c(1,2,3,4,5))+
+        labs(y = str_wrap("The Cover Crop Challenge was a valuable activity", width = 20),
+             x = "Student cover crop growth rating")+
+        theme(axis.title.y = element_text(angle = 0,vjust = .5,hjust = 0),
+               plot.margin = unit(c(5.5, 12.5, 5.5, 5.5), "points"))
+
+RatingPatch <- 
+  RatingCor + RatingsDens +
+    plot_annotation(tag_levels = list(c("a.","b."))) &
+    theme(plot.tag.position =  "topleft",
+          plot.tag = element_text(size = rel(1.65)))
+#ggsave("RatingPlot.png", RatingPatch, width = 7.265, height = 2.8, units = "in", dpi = 600)
+
+SurveyData_Corr2_split  <- 
+  SurveyData_Corr2 %>% 
+  mutate(Setting = case_when(
+    University %in% c("University of New Hampshire", "Michigan State University") ~ "Field-only (*n* = 35)",
+    University == "Cornell University" & Year == 2023 ~ "Field-only (*n* = 35)",
+    .default = "Greenhouse and field (*n* = 43)"))
+
+RatingCor_split <-
+  ggscatter(SurveyData_Corr2_split, y = colnames(SurveyData_Corr2)[12], x = colnames(SurveyData_Corr2)[19],
+              add = "reg.line", conf.int = TRUE,cor.method = "kendall",
+              add.params = list(fill = "#B0B0B0"), # Customize reg. line
+              ggtheme = theme_get())+
+        stat_cor(method = "kendall",cor.coef.name = "tau[b]",label.y.npc = .925)+
+        geom_jitter(size = .75,width = 0.08, height = .07)+
+        scale_x_continuous(breaks = c(1,2,3,4,5),labels = c("1\n(poor)",2,3,4,"5\n(excellent)"))+
+        scale_y_continuous(breaks = c(1,2,3,4,5))+
+        labs(y = str_wrap("The Cover Crop Challenge was a valuable activity", width = 20),
+             x = "Student cover crop growth rating")+
+        facet_wrap(~Setting)+
+        theme_minimal()+
+        theme(axis.title.y = element_text(angle = 0,vjust = .5,hjust = 0),
+              panel.spacing = unit(1, "lines"),
+              strip.text.x = ggtext::element_markdown(size = 11, hjust = 0),
+              panel.border = element_rect(color = "black", fill = NA, size = .5))
+
+RatingPatch_sep <- 
+  RatingCor_split / RatingsDens_sep +
+    plot_annotation(tag_levels = list(c("a.","b."))) &
+    theme(plot.tag.position =  "topleft",
+          plot.tag = element_text(size = rel(1.65)))
+ggsave("RatingPatch_sep.png", RatingPatch_sep, width = 6.49, height = 6.02, units = "in", dpi = 600)
+```
+
+```{r split}
+SurveyData_Corr2_GH <- SurveyData_Corr2_split[SurveyData_Corr2_split$Setting == "Field-only (*n* = 35)",]
+SurveyData_Corr2_Both <- SurveyData_Corr2_split[SurveyData_Corr2_split$Setting == "Greenhouse and field (*n* = 43)",]
+
+CorrTableFun_GH <- function(z){
+  p_tmp <- cor.test(SurveyData_Corr2_GH[,12], SurveyData_Corr2_GH[,z],
+                    method = "kendall", alternative = "two.sided")$p.value
+  r_tmp <- cor.test(SurveyData_Corr2_GH[,12], SurveyData_Corr2_GH[,z],
+                    method = "kendall", alternative = "two.sided")$estimate
+  data.frame(Outcome = colnames(SurveyData_Corr2_GH)[z], correlation = r_tmp, p.value = p_tmp,
+             row.names = NULL)}
+
+CorrTableFun_Both <- function(z){
+  p_tmp <- cor.test(SurveyData_Corr2_Both[,12], SurveyData_Corr2_Both[,z],
+                    method = "kendall", alternative = "two.sided")$p.value
+  r_tmp <- cor.test(SurveyData_Corr2_Both[,12], SurveyData_Corr2_Both[,z],
+                    method = "kendall", alternative = "two.sided")$estimate
+  data.frame(Outcome = colnames(SurveyData_Corr2_Both)[z], correlation = r_tmp, p.value = p_tmp,
+             row.names = NULL)}
+#Overall
+resultsGH <- sapply(3:11,CorrTableFun_GH,simplify = FALSE) #warning b/c <50 data-points, not an issue
+resultGH_df <- do.call(rbind, resultsGH)
+
+resultsBoth <- sapply(3:11,CorrTableFun_Both,simplify = FALSE) #warning b/c <50 data-points, not an issue
+resultBoth_df <- do.call(rbind, resultsBoth)
+
+#CCC
+resultsGH2 <- sapply(13:18,CorrTableFun_GH,simplify = FALSE) #warning b/c <50 data-points, not an issue
+resultGH_df2 <- do.call(rbind, resultsGH2)
+
+resultsBoth2 <- sapply(13:18,CorrTableFun_Both,simplify = FALSE) #warning b/c <50 data-points, not an issue
+resultBoth_df2 <- do.call(rbind, resultsBoth2)
+
+
+Split_wb <- createWorkbook()
+addWorksheet(Split_wb, "Overall_GH")
+addWorksheet(Split_wb, "Overall_Both")
+addWorksheet(Split_wb, "CCC_GH")
+addWorksheet(Split_wb, "CCC_Both")
+
+writeData(Split_wb, "Overall_GH", resultGH_df)
+writeData(Split_wb, "Overall_Both", resultBoth_df)
+writeData(Split_wb, "CCC_GH", resultGH_df2)
+writeData(Split_wb, "CCC_Both", resultBoth_df2)
+
+#saveWorkbook(Split_wb,"SplitCorrTableRaw.xlsx",overwrite = T)
+```
+
+#Example
+The different number of students will come from the fact that all students submitted the challenge
+```{r Comp}
+GreenhouseExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+                               sheet = "Greenhouse")
+FieldExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+                          sheet = "Outside")
+
+GreenhouseExample23 <- drop_na(GreenhouseExample23)
+FieldExample23 <- drop_na(FieldExample23)
+
+# Keep only rows in FieldExample that match with GreenhouseExample based on 'State' and 'Name'
+FieldExample23 <- semi_join(FieldExample23, GreenhouseExample23, by = c("State", "Name"))
+
+#Order the two dfs by state and student name so that the numbering is equal
+GreenhouseExample <- 
+  GreenhouseExample23 %>%
+  arrange(State,Name) %>% 
+  mutate(Name = paste0("S",row_number()))
+
+FieldExample <-
+  FieldExample23 %>% 
+  arrange(State,Name) %>% 
+  mutate(Name = paste0("S",row_number()))
+
+cbind(GreenhouseExample[,c(1,2)],FieldExample[,c(1,2)])
+
+GreenhouseBiomass <-
+  GreenhouseExample %>% 
+    select(Name,ends_with(".biomass.(g/pot)")&!starts_with("Total")) %>% 
+    rename_with(~gsub("\\.biomass\\.\\(g/pot\\)", "", .), everything()) %>% 
+    pivot_longer(cols = -Name, names_to = "Family",values_to = "Biomass_g.pot") %>% 
+    mutate(Biomass_g.m2 = Biomass_g.pot*(1550.0031/28.26), .keep = "unused") %>% #Conversion: g/pot to g/m2
+    mutate(Biomass_lbs.ac = Biomass_g.m2*8.92179) %>% #Conversion: g/m2 to lbs/ac
+  ggplot(.,aes(reorder(Name,Biomass_lbs.ac,sum),Biomass_lbs.ac, fill = Family))+
+    geom_bar(stat = "identity")+
+    viridis::scale_fill_viridis(discrete = TRUE, begin = 0, end = .9)+
+    labs(x = NULL, y=expression(paste("Crop biomass (lbs ac"^-1,")",sep = "")),
+         fill = NULL)+
+    scale_y_continuous(labels = scales::comma)+
+    theme(axis.text.x = element_text(angle = 90,vjust = .5),
+          legend.position = "bottom",
+          legend.text = element_text(face = "italic"))+
+    facet_wrap(~"Greenhouse")
+
+GreenhouseEvenness <-
+  GreenhouseExample %>% 
+    select(Name,ends_with("evenness")) %>% 
+    rename(Evenness = Observed.family.evenness) %>% 
+  ggplot(.,aes(reorder(Name,Evenness,sum),Evenness))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL)+
+    theme(axis.text.x = element_text(angle = 90,vjust = .5))
+
+GreenhouseEcon <-
+  GreenhouseExample %>% 
+    select(Name,`Economic.efficiency.(lb/$)`) %>% 
+    #mutate(`EconomicEfficiency_kg.$` = `Economic.efficiency.(lb/$)`/2.2, .keep = "unused") %>% #OFF: Conversion: lbs/$ to kg/$
+    filter(`Economic.efficiency.(lb/$)` != 0) %>% 
+  ggplot(.,aes(reorder(Name,`Economic.efficiency.(lb/$)`,sum),`Economic.efficiency.(lb/$)`))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL,
+         y=expression(atop("Economic efficiency",
+                           paste("(lbs crop biomass dollar"^-1,")",sep = ""))))+
+    scale_y_continuous(labels = scales::comma)+
+    theme(axis.text.x = element_text(angle = 90,vjust = .5))
+
+
+FieldBiomass <-
+  FieldExample %>% 
+    select(Name,ends_with(".biomass.(g/0.25m2)")&!starts_with("Total")) %>% 
+    rename_with(~gsub("\\.biomass\\.\\(g/0.25m2\\)", "", .), everything()) %>% 
+    pivot_longer(cols = -Name, names_to = "Family",values_to = "Biomass_g.0.25m2") %>% 
+    mutate(Biomass_g.m2 = Biomass_g.0.25m2*4, .keep = "unused") %>% #Conversion: g/pot to g/m2
+    mutate(Biomass_lbs.ac = Biomass_g.m2*8.92179) %>% #Conversion: g/m2 to lbs/ac
+  ggplot(.,aes(reorder(Name,Biomass_lbs.ac,sum),Biomass_lbs.ac, fill = Family))+
+    geom_bar(stat = "identity")+
+    viridis::scale_fill_viridis(discrete = TRUE, begin = 0, end = .9)+
+    labs(x = NULL, y=expression(paste("Crop biomass (lbs ac"^-1,")",sep = "")),
+         fill = NULL)+
+    scale_y_continuous(labels = scales::comma)+
+    theme(axis.text.x = element_text(angle = 90,vjust = .5),
+          legend.position = "bottom",
+          legend.text = element_text(face = "italic"))+
+    facet_wrap(~"Field")
+
+FieldEvenness <-
+  FieldExample %>% 
+    select(Name,ends_with("evenness")) %>% 
+    rename(Evenness = Observed.family.evenness) %>% 
+  ggplot(.,aes(reorder(Name,Evenness,sum),Evenness))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL)+
+    theme(axis.text.x = element_text(angle = 90,vjust = .5))
+
+FieldEcon <-
+  FieldExample %>% 
+    select(Name,`Economic.Efficiency.(lb/$)`) %>% 
+    #mutate(`EconomicEfficiency_kg.$` = `Economic.Efficiency.(lb/$)`/2.2, .keep = "unused") %>% #OFF: Conversion: lbs/$ to kg/$
+  ggplot(.,aes(reorder(Name,`Economic.Efficiency.(lb/$)`,sum),`Economic.Efficiency.(lb/$)`))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL,
+         y=expression(atop("Economic efficiency",
+                           paste("(lbs crop biomass dollar"^-1,")",sep = ""))))+
+    scale_y_continuous(labels = scales::comma)+
+    theme(axis.text.x = element_text(angle = 90,vjust = .5))
+
+layout <- "
+AB
+CC
+DD
+EF
+GH
+"
+
+CompPatch2<-
+  GreenhouseBiomass+FieldBiomass+guide_area()+plot_spacer()+
+    GreenhouseEvenness+FieldEvenness+GreenhouseEcon+FieldEcon+
+    plot_layout(axis_titles = "collect", guides = "collect", design = layout,
+                heights = c(1,.18,.0005,1,1))&
+    labs(x="Student")&
+    theme(legend.position = "bottom")
+#ggsave("CompPatch.png",CompPatch2,width = 6.6, height = 6.2, units = "in", dpi = 600)
+```
+
+```{r Tables}
+TableExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+                               sheet = "Seeding rate (lbs ac)")
+TableExample23 <- drop_na(TableExample23)
+TableExample23 <- semi_join(TableExample23, GreenhouseExample23, by = c("State", "Name")) #sub-setting to get the same students as the plots
+
+#Note that units are already in lbs/ac
+TableExample <- 
+  TableExample23 %>% 
+  select(-starts_with("Total")) %>% 
+  clean_names(case = "sentence") %>% 
+  #mutate(across(where(is.numeric), ~round(.*1.12085,0))) %>%  #OFF: Conversion from lbs/ac to kg/ha
+  arrange(State,Name) %>% #Arranging to get the same order as the other plots
+  mutate(Name = paste0("S",row_number()))
+
+TableExample_GBiomass <-
+  TableExample %>% 
+  select(-State) %>% 
+  filter(Name %in% c("S19","S15","S17"))
+
+TableExample_FBiomass <-
+  TableExample %>% 
+  select(-State) %>% 
+  filter(Name %in% c("S13","S4","S7"))
+
+
+#Final formatting done in Excel - gt table is cool but a waist of time!
+#Saved as CompTable.xlsx in Figsures&Tables>Raw using copy and paste from a word doc. Transferred to inkscape as a pdf
+library(gt)
+bind_rows(mutate(TableExample_GBiomass,
+                 Setting = "Greenhouse cover crop biomass - top three students"),
+          mutate(TableExample_FBiomass,
+                 Setting = "Field cover crop biomass - top three students")) %>% 
+  select(Name,Setting,11:12,6:10,2:5,13) %>% 
+  group_by(Setting) %>% 
+  rename("Student name" = Name) %>% 
+  gt() %>% 
+  tab_spanner(label = "Brassicaceae",columns = 3:4) %>% #Familes
+  tab_spanner(label = "Fabaceae",columns = 5:9) %>% 
+  tab_spanner(label = "Poaceae",columns = 10:13) %>% 
+  tab_spanner(label = "Polygonaceae",columns = 14) %>% 
+  tab_style(
+    style = cell_text(align = "center",v_align = "middle"),
+    locations = list(cells_column_labels(),cells_body())) %>% #Centering columns
+  tab_style(
+    style = cell_text(align = "left",weight = "bold",v_align = "middle"),
+    locations = list(cells_column_labels("Student name"),cells_body("Student name"))) %>% #Offset name colunm
+  cols_label("Student name" = "") %>% 
+  tab_style(
+    style = cell_text(whitespace = "pre-wrap"),
+    locations = list(cells_column_labels())) %>% #wrapping species
+  tab_style(
+    style = cell_text(weight = "normal",style = "italic"),
+    locations = list(cells_row_groups(),cells_column_spanners())) %>% #italicizing groups
+  tab_header( #Title
+    title = md("Seeding rates (lbs ac<sup>-1</sup>)")) %>% 
+  opt_align_table_header(align = "center") %>% 
+  tab_options(table_body.hlines.color = "transparent", #removing row lines
+              row_group.border.top.width = 0,row_group.border.bottom.width = 0, #removing row group lines
+              table.font.size = "68%",
+              table.width = "80%",
+              heading.padding = px(1.5), column_labels.padding = px(1.5),
+              row_group.padding = px(5), data_row.padding = px(1.5)) #%>%
+  #gtsave("test2.docx")
+```
+
+
+```{r Spider}
+SpiderExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+                               sheet = "Ecosystem services axes")
+SpiderExample23 <- drop_na(SpiderExample23) #remove MSU (MI) students
+SpiderExample23 <- semi_join(SpiderExample23, GreenhouseExample23, by = c("State", "Name")) #sub-setting to get the same students as the plots
+
+SpiderExample <- 
+  SpiderExample23 %>% 
+  clean_names(case = "sentence") %>% 
+  arrange(State,Name) %>% #Arranging to get the same order as the other plots
+  mutate(Name = paste0("S",row_number()))
+
+SpiderFun <- function(x) {
+  fmsb::radarchart(x,axistype=1,
+                   pcol=rgb(0.2,0.5,0.5,0.9) , pfcol=rgb(0.2,0.5,0.5,0.5),plwd=2,
+                   cglcol="grey", cglty=1,
+                   axislabcol="grey10",caxislabels=seq(1,5,1), cglwd=0.8,
+                   vlcex=1)}
+
+##Top 3 (least to most): S7, S4, S13
+SpiderExample_S7a <- SpiderExample[SpiderExample$Name == "S7",-c(1:2)] #Student S7
+SpiderExample_S13a <- SpiderExample[SpiderExample$Name == "S13",-c(1:2)] #Student S13
+
+SpiderExample_S7b <- rbind(rep(5,8) , rep(1,8), SpiderExample_S7a)
+SpiderExample_S13b <- rbind(rep(5,8) , rep(1,8),SpiderExample_S13a)  
+  
+png("SpiderPlot.png",width = 9.75, height = 5.12, units = "in", res = 600)
+par(mfrow = c(1, 2),mar = c(5, 1, 4, 1) + 0.1)
+  SpiderFun(SpiderExample_S7b)+title("Student 7",adj = 0,line = 1)
+  SpiderFun(SpiderExample_S13b)+title("Student 13",adj = 0,line = 1)
+dev.off()
+```
+
+# Range
+```{r}
+#2022 prep
+GreenhouseRange22 <- read.xlsx("2022 Data/CoverCropChallenge_Results2022.xlsx",
+                               sheet = "Greenhouse")
+FieldRange22 <- read.xlsx("2022 Data/CoverCropChallenge_Results2022.xlsx",
+                          sheet = "Outside")
+
+GreenhouseRange22 <- drop_na(GreenhouseRange22) %>% mutate(Year = "2022", .before = State)
+FieldRange22 <- drop_na(FieldRange22) %>% mutate(Year = "2022", .before = State)
+
+
+#2023 prep
+GreenhouseRange23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+                               sheet = "Greenhouse")
+FieldRange23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+                          sheet = "Outside")
+
+GreenhouseRange23 <- drop_na(GreenhouseRange23) %>% mutate(Year = "2023", .before = State)
+FieldRange23 <- drop_na(FieldRange23) %>% mutate(Year = "2023", .before = State)
+
+#Merging
+compare_df_cols(GreenhouseRange22,GreenhouseRange23)
+GreenhouseRange <- rbind(GreenhouseRange22,GreenhouseRange23)
+GreenhouseRange <- GreenhouseRange %>% 
+  select("Year","Name",
+         "Total.biomass.(lb/a)","Observed.family.evenness","Economic.efficiency.(lb/$)") %>% 
+  mutate(Setting = "Greenhouse")
+
+
+compare_df_cols(FieldRange22,FieldRange23)
+FieldRange <- rbind(FieldRange22,FieldRange23)
+FieldRange <- FieldRange %>% 
+  select("Year","Name",
+         "Total.biomass.(lb/acre)","Observed.family.evenness","Economic.Efficiency.(lb/$)") %>% 
+  rename("Total.biomass.(lb/a)" = "Total.biomass.(lb/acre)",
+         "Economic.efficiency.(lb/$)" = "Economic.Efficiency.(lb/$)") %>% 
+  mutate(Setting = "Field")
+
+compare_df_cols(GreenhouseRange,FieldRange)
+RangeData <- rbind(GreenhouseRange,FieldRange)
+
+#Calculating range and converting
+RangeSum <- 
+  RangeData %>%
+    select(-Name) %>% 
+    rename("Total biomass (lb/a)" = "Total.biomass.(lb/a)",
+           "Evenness" = "Observed.family.evenness",
+           "Economic efficiency (lb/$)" = "Economic.efficiency.(lb/$)" ) %>% 
+    mutate("Total biomass (kg/ha)" = `Total biomass (lb/a)`*1.12085,  #converting to kg/ha
+           "Economic efficiency (kg/$)" = `Economic efficiency (lb/$)`*0.453592) %>%  #converting to $/ha
+    select(Year,"Total biomass (kg/ha)",Evenness,"Economic efficiency (kg/$)",Setting) %>%  #getting rid of old
+    group_by(Setting,Year) %>% 
+    summarise(across(everything(),list(min = min, max = max)))
+
+#Presenting the range in a nice table layout
+RangeSumTab<-
+  RangeSum %>% 
+  pivot_longer(cols = -c(Setting,Year),
+               names_to = c("Variable","Calc"), names_sep = "_",
+               values_to = "Value") %>% 
+  pivot_wider(names_from = Calc,
+              values_from = Value)
+
+RangeSumTab$Setting <- factor(RangeSumTab$Setting,levels = c("Greenhouse","Field")) #factor so greenhouse first
+
+RangeSumTab %>%
+  pivot_wider(names_from = Setting, #one more pivot for spanners in gt()
+              values_from = c(min,max),
+              names_glue = "{Setting}_{.value}", #specifying order for gt()
+              names_vary = "slowest",
+              names_sort = TRUE) %>% 
+  gt(groupname_col = "Year",row_group_as_column = TRUE) %>% 
+  tab_spanner_delim(delim = "_") %>% 
+  fmt_number(rows = c(1,4), decimals = 0) %>% #rounding biomass
+  fmt_number(rows = c(2,5), decimals = 2) %>% #rounding evenness
+  fmt_number(rows = c(3,6), decimals = 2) #rounding econ. eff.
+```
+
+pot values in paper
+```{r eval=FALSE, include=FALSE}
+GreenhouseRange %>% 
+  group_by(Year) %>% 
+  select(Year, State, Name,
+         `Total.biomass.(g/pot)`,
+         `Total.biomass.(lb/a)`) %>% 
+  slice_max(`Total.biomass.(g/pot)`, n=1) %>% 
+  mutate(`Total.biomass.(kg/ha)` = `Total.biomass.(lb/a)` * 1.12085)
+
+GreenhouseRange %>% 
+  group_by(Year) %>% 
+  select(Year, State, Name,
+         `Total.biomass.(g/pot)`,
+         `Total.biomass.(lb/a)`) %>% 
+  slice_min(`Total.biomass.(g/pot)`, n=1) %>% 
+  mutate(`Total.biomass.(kg/ha)` = `Total.biomass.(lb/a)` * 1.12085)
+```
+
+#old
+old comp
+```{r}
+GreenhouseExample <- read.xlsx("CC_Challenge/CoverCropChallenge23_data.xlsx", sheet = "Greenhouse_ed")
+
+GreenhouseBiomass <-
+  GreenhouseExample %>% 
+    select(Subject,ends_with("_g.m2")) %>% 
+    rename_with(~gsub("Biomass_g.m2", "", .), everything()) %>% 
+    pivot_longer(cols = -Subject, names_to = "Family",values_to = "Biomass_g.m2") %>% 
+  ggplot(.,aes(Subject,Biomass_g.m2,fill = Family))+
+    geom_bar(stat = "identity")+
+    viridis::scale_fill_viridis(discrete = TRUE, begin = 0, end = .9)+
+    labs(x = NULL,
+          y=expression(paste("Crop biomass (g m"^-2,")",sep = "")),
+         fill = NULL)+
+    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))+
+    scale_y_continuous(labels = scales::comma)+
+    theme(legend.position = "bottom",
+          legend.text = element_text(face = "italic"))+
+    facet_wrap(~"Greenhouse")
+
+GreenhouseEvenness <-
+  GreenhouseExample %>% 
+    select(Subject,ObservedFamilyEvenness) %>% 
+    rename(Evenness=ObservedFamilyEvenness) %>% 
+  ggplot(.,aes(Subject,Evenness))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL)+
+    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))
+
+GreenhouseEcon <-
+  GreenhouseExample %>% 
+    select(Subject,`EconomicEfficiency_kg.$`) %>% 
+  ggplot(.,aes(Subject,`EconomicEfficiency_kg.$`))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL,
+         y=expression(atop("Economic efficiency", paste("(kg crop biomass dollar"^-1,")",sep = ""))))+
+    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))+
+    scale_y_continuous(labels = scales::comma)
+
+FieldExample <- read.xlsx("CC_Challenge/CoverCropChallenge23_data.xlsx", sheet = "Field_ed")
+
+FieldBiomass <-
+  FieldExample %>% 
+    select(Subject,ends_with("_g.m2")) %>% 
+    rename_with(~gsub("Biomass_g.m2", "", .), everything()) %>% 
+    pivot_longer(cols = -Subject, names_to = "Family",values_to = "Biomass_g.m2") %>% 
+  ggplot(.,aes(Subject,Biomass_g.m2,fill = Family))+
+    geom_bar(stat = "identity")+
+    viridis::scale_fill_viridis(discrete = TRUE, begin = 0, end = .9)+
+    labs(x = NULL,
+         y=expression(paste("Crop biomass (g m"^-2,")",sep = "")),
+         fill = NULL)+
+    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))+
+    theme(legend.position = "bottom",
+          legend.text = element_text(face = "italic"))+
+    facet_wrap(~"Field")
+
+FieldEvenness <-
+  FieldExample %>% 
+    select(Subject,ObservedFamilyEvenness) %>% 
+    rename(Evenness=ObservedFamilyEvenness) %>% 
+  ggplot(.,aes(Subject,Evenness))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL)+
+    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))
+
+FieldEcon <-
+  FieldExample %>% 
+    select(Subject,`EconomicEfficiency_kg.$`) %>% 
+  ggplot(.,aes(Subject,`EconomicEfficiency_kg.$`))+
+    geom_bar(stat = "identity")+
+    labs(x = NULL,
+         y=expression(atop("Economic efficiency", paste("(kg crop biomass dollar"^-1,")",sep = ""))))+
+    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))
+
+#Patching
+
+#CompPatch1 <-
+  GreenhouseBiomass+FieldBiomass+GreenhouseEvenness+FieldEvenness+GreenhouseEcon+FieldEcon+
+    plot_layout(axis_titles = "collect_y", guides = "collect", nrow = 3)&
+    theme(legend.position = "bottom")
+#ggsave("CompPatch.png",CompPatch1,width = 6.75, height = 5.8, units = "in", dpi = 600)
+
+layout <- "
+AB
+CC
+DD
+EF
+GH
+"
+
+CompPatch2<-
+  GreenhouseBiomass+FieldBiomass+guide_area()+plot_spacer()+
+    GreenhouseEvenness+FieldEvenness+GreenhouseEcon+FieldEcon+
+    plot_layout(axis_titles = "collect_y", guides = "collect", design = layout,
+                heights = c(1,.18,.0005,1,1))&
+    theme(legend.position = "bottom")  
+
+
+tmp <-
+  GreenhouseExample %>% 
+    select(Name,ends_with(".biomass.(g/pot)")&!starts_with("Total")) %>% 
+    rename_with(~gsub("\\.biomass\\.\\(g/pot\\)", "", .), everything()) %>% 
+    pivot_longer(cols = -Name, names_to = "Family",values_to = "Biomass_g.pot")
+tmp$Family
+
+library(mmtable2)
+```
+
+combo
+```{r}  
+SpiderFun2 <- function(x) {
+  fmsb::radarchart(x,axistype=1,
+                   pcol=rgb(0.2,0.5,0.5,0.9) , pfcol=rgb(0.2,0.5,0.5,0.5),plwd=2,
+                   cglcol="grey", cglty=1,
+                   axislabcol="grey10",caxislabels=seq(1,5,1), cglwd=0.8,
+                   vlcex=.75)}
+
+
+layout2 <- "
+AB
+CD
+EE
+FF
+GH
+IJ
+"
+p1<-wrap_elements(~SpiderFun2(SpiderExample_S1b)+
+                    title("Student 1",adj = 0.2,line = 1,cex.main = .9),
+                  clip = TRUE)
+p2<-wrap_elements(~SpiderFun2(SpiderExample_S2b)+
+                    title("Student 2",adj = 0.2,line = 1,cex.main = .9),
+                  clip = TRUE)
+
+par(mar = c(0, 0, 2, 0))
+
+StudentPatch <-
+  p1+p2+
+  GreenhouseBiomass+FieldBiomass+
+  guide_area()+
+  plot_spacer()+
+  GreenhouseEvenness+FieldEvenness+
+  GreenhouseEcon+FieldEcon+
+    plot_layout(axis_titles = "collect_y", guides = "collect", design = layout2,
+                heights = c(1.4,.7,.05,-.13,.7,.7))+
+    plot_annotation(tag_levels = list(c("a","","b", rep("",7))))&
+    theme(plot.tag = element_text(size = 15)) #the error is because of the blanks, not an issues
+
+outPut<-print(StudentPatch, vp=grid::viewport(gp=grid::gpar(cex=.75)))
+ggsave("BigTest.png")
+dev.off()
+```
+
+

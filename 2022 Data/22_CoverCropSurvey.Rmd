@@ -1,0 +1,1034 @@
+---
+title: "Cover crop class"
+output: html_document
+date: "2023-02-06"
+---
+
+Notes:
+Stephene Perry from Cornell Stats Consulting reccomends against additional statical tests on the likert scale data (5/22/2023). So the confidence intervals for overall satisfaction and multi-site design are just for fun...
+
+#   Loading
+```{r}
+#Working directory should be changed to run on another computer, link to the folder where you download CoverCropSurvey2022_Cleaned.xlsx  
+setwd("/Users/udm3/Library/CloudStorage/Box-Box/Cover Crops in Agroecosystems - Internal/Analysis/2022 Data (NSE overview paper analysis)")
+
+library(openxlsx)
+library(tidyverse)
+library(maps)
+library(ggrepel)
+library(likert)
+library(mmtable2)
+library(patchwork)
+library(grid)
+library(ggplotify)
+
+SurveyData1 <- read.xlsx("CoverCropSurvey2022_Cleaned.xlsx", sheet = 1)
+
+SurveyDataFull <- SurveyData1 %>% 
+  mutate(region = case_when(
+    Q63 == "Cornell University" ~ "new york",
+    Q63 == "Clemson University" ~ "south carolina",
+    Q63 == "University of Nebraska" ~ "nebraska",
+    Q63 == "University of Kentucky" ~ "kentucky",
+    Q63 == "University of New Hampshire" ~ "new hampshire",
+    Q63 == "Michigan State University" ~ "michigan"))
+
+SurveyDataNamed <- SurveyDataFull
+colnames(SurveyDataNamed) <- SurveyDataNamed[1,]
+SurveyDataNamed <- SurveyDataNamed[-1,] 
+
+SurveyDataFull[-1,] %>% 
+  count(region)
+```
+
+#   Map of students
+```{r}
+us_states <- map_data("state")
+ 
+SurveyDataState <- SurveyDataFull[-1,] %>% 
+  count(region) %>% 
+  arrange(n)
+
+mean(SurveyDataState$n)
+sd(SurveyDataState$n)
+
+# merge and sort (plots in order, sort ensures states filled in)
+Survey.geo <- left_join(us_states, SurveyDataState,by = "region")
+Survey.geo <- Survey.geo[order(Survey.geo$order), ]
+
+
+univ_data <- data.frame(
+  university = c("Cornell", "Clemson", "UNL", 
+                 "UK", "UNH", "MSU"),
+  state = c("New York", "South Carolina", "Nebraska", "Kentucky", "New Hampshire", "Michigan"),
+  lon = c(-76.48, -82.83, -96.67, -84.5, -71.54, -84.55),
+  lat = c(42.45, 34.67, 40.82, 37.83, 43.2, 43.00))
+
+#im excluding the confused UNL student here because we are reporting survey res
+#tiff("Figs/SurveyDistribution.tiff",width = 6.06, height = 4.58, units = "in", res = 300)
+ggplot(Survey.geo, aes(long, lat)) +
+  geom_polygon(aes(group = group, fill = n),color = "black",linewidth = .275) +
+  scale_fill_gradient(low = "cornflowerblue", high = "tomato2",
+                      na.value = "grey95",breaks = c(3,4,8,12),
+                      guide = guide_legend(keyheight = unit(6, units = "mm"),
+                                          keywidth=unit(12, units = "mm")))+
+  geom_point(data = univ_data, aes(x = lon, y = lat), color = "black", size = 2) +
+  geom_label_repel(data = univ_data, aes(x = lon, y = lat, label = university),
+            color = "black",box.padding = .6,
+            fill = alpha("white",0.85)) +
+  coord_fixed(1.3) +
+  labs(#title = "Where are our students from?",
+       #subtitle = "mean students at each site = 7 (std. devation = 3)",
+       fill = "Number of survey responses")+
+  theme_void()+
+  theme(plot.title = element_text(size=25, face="bold",hjust = .2,vjust = -1),
+        plot.subtitle = element_text(size=14,hjust = .15,vjust = -1),
+        legend.position = "bottom",legend.text = element_text(size = 12))
+#dev.off()
+```
+
+#   Overall Satisfaction
+```{r}
+SurveyData_likert1 <- SurveyDataNamed[,3:12]
+SurveyData_likert1[1:10] <- lapply(SurveyData_likert1[1:10], factor)
+SurveyData_likert1[2:10] <- lapply(SurveyData_likert1[2:10], factor,
+                                   levels = c("Strongly Disagree","Disagree",
+                                              "Unsure","Agree","Strongly Agree"))
+
+names(SurveyData_likert1)[1] <- "University"
+SurveyData_likert1 %>% 
+  count(University) %>% 
+  summarise(n=sum(n))
+
+# Get the current column names of the data frame
+SurveyData_likert1.col_names <- colnames(SurveyData_likert1)
+
+# Remove the string "As a result of taking this course I can" from each column name
+SurveyData_likert1.col_names_newTmp <- gsub("As a result of taking this course I can ", "",
+                                          SurveyData_likert1.col_names)
+SurveyData_likert1.col_names_newTmp <- str_to_sentence(SurveyData_likert1.col_names_newTmp)
+SurveyData_likert1.col_names_new <- gsub("\\.", "",SurveyData_likert1.col_names_newTmp)
+
+# Replace the original column names with the new names
+colnames(SurveyData_likert1) <- SurveyData_likert1.col_names_new
+
+# Plotting
+## Overall
+likert1.all <- likert(SurveyData_likert1[2:10]) 
+
+#tiff("Figs/CourseRatings/OverallRating.tiff",width = 8.4, height = 7.22, units = "in", res = 300) #new is 840 x 722
+plot(likert1.all, text.size=4.5,ordered = TRUE)+
+  #labs(title = "As a result of taking this course, students can...",
+   #    subtitle = "All sites (n = 43)")+
+  theme_light(base_size = 16)+
+  theme(legend.title = element_blank(),
+        legend.position = "bottom",
+        legend.justification = 1)+
+  scale_y_continuous(labels = abs, limits = c(-110, 130))
+#dev.off()
+```
+
+```{r eval=FALSE, include=FALSE}
+#Site-level
+
+##  Cornell
+SurveyData_likert1.Cornell<-SurveyData_likert1 %>% 
+  filter(University == "Cornell University")
+likert1.Cornell <- likert(SurveyData_likert1.Cornell[2:10]) 
+
+tiff("Figs/CourseRatings/CornellRating.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert1.Cornell, ordered = TRUE)+
+  labs(title = "As a result of taking this course, students can...",
+       subtitle = "Cornell University (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  Clemson
+SurveyData_likert1.Clemson<-SurveyData_likert1 %>% 
+  filter(University == "Clemson University")
+likert1.Clemson <- likert(SurveyData_likert1.Clemson[2:10]) 
+
+tiff("Figs/CourseRatings/ClemsonRating.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert1.Clemson,ordered = TRUE)+
+  labs(title = "As a result of taking this course, students can...",
+       subtitle = "Clemson University (n = 4)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  U_Nebraska
+SurveyData_likert1.U_Nebraska<-SurveyData_likert1 %>% 
+  filter(University == "University of Nebraska")
+likert1.U_Nebraska <- likert(SurveyData_likert1.U_Nebraska[2:10]) 
+
+tiff("Figs/CourseRatings/UNLRating.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert1.U_Nebraska, ordered = TRUE)+
+  labs(title = "As a result of taking this course, students can...",
+       subtitle = "University of Nebraska (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  U_Kentucky - work on
+SurveyData_likert1.UK<-SurveyData_likert1 %>% 
+  filter(University == "University of Kentucky") 
+likert1.U_Kentucky <- likert(SurveyData_likert1.UK[2:10]) 
+
+tiff("Figs/CourseRatings/UKRating.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert1.U_Kentucky,ordered = TRUE)+
+  labs(title = "As a result of taking this course, students can...",
+       subtitle = "University of Kentucky (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+
+##  UNH
+SurveyData_likert1.UNH<-SurveyData_likert1 %>% 
+  filter(University == "University of New Hampshire")
+likert1.UNH <- likert(SurveyData_likert1.UNH[2:10])
+
+tiff("Figs/CourseRatings/UNHRating.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert1.UNH, ordered = FALSE)+
+  labs(title = "As a result of taking this course, students can...",
+       subtitle = "University of New Hampshire (n = 3)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  Michigan State
+SurveyData_likert1.MSU<-SurveyData_likert1 %>% 
+  filter(University == "Michigan State University")
+likert1.MSU <- likert(SurveyData_likert1.MSU[2:10]) 
+
+tiff("Figs/CourseRatings/MSURating.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert1.MSU, ordered = TRUE)+
+  labs(title = "As a result of taking this course, students can...",
+       subtitle = "Michigan State University (n = 12)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+#Table
+SurveyData_likert1_Table<-
+  SurveyData_likert1 %>% 
+    pivot_longer(2:10,names_to = "Question",values_to = "LikertValue") %>% 
+    count(Question, University, LikertValue, .drop = F) %>% 
+    mmtable(.,n) + 
+        header_top(Question) +
+        header_left(LikertValue) + 
+        header_left_top(University)
+SurveyData_likert1_Table
+```
+```{r eval=FALSE, include=FALSE}
+#Confidence intervals
+
+# Making the binomial test loop
+## cut =cutoff point
+## z = baseline of average satisfaction
+
+satisfied_ci<-function(x,score=cut,baseline=z){
+  satisfied<-(x>score)*1 
+  n<-length(x)
+  p<-sum(satisfied)
+  mid<-round(p/n*100,0)
+  b<-binom.test(p,n,baseline, alternative = "two.sided")
+  c(mid,round(b$conf.int*100,0),round(b$p.value,3))
+}
+
+# Data prep
+Likert1_CI<-SurveyData_likert1 %>% 
+  pivot_longer(2:10,names_to = "Question",values_to = "ResponseValue")
+
+Likert1_CI$ResponseValue <- as.numeric(Likert1_CI$ResponseValue)
+unique(Likert1_CI$Question)
+
+# Testing - confirmed that the same results as website 5/17/23
+cut<-3 #cutoff point
+z<-sum(Likert1_CI$ResponseValue>cut)/length(Likert1_CI$ResponseValue) #baseline of average satisfaction
+
+dd <- Likert1_CI %>% group_by(Question)%>% 
+  summarise(lwr=satisfied_ci(ResponseValue,score = cut,baseline = z)[2],
+            med=satisfied_ci(ResponseValue,score = cut,baseline = z)[1],
+            upr=satisfied_ci(ResponseValue,score = cut,baseline = z)[3],
+            n=n(),
+            n_sat=sum((ResponseValue>3)*1),
+            p_val=satisfied_ci(ResponseValue,score = cut,baseline = z)[4])
+
+dd<-dd[order(dd$med),]
+dd$Question = factor(dd$Question, levels=dd$Question[order(dd$med)], ordered=TRUE)
+#dd<-subset(dd,dd$med>90)
+ggplot(dd,aes(x=Question))+
+  geom_point(aes(y=med),colour="red",size=2)+
+  geom_hline(yintercept=z*100,
+             col="red",size = 1.5,linetype="dashed") +
+  geom_errorbar(aes(ymin=lwr,ymax=upr,width = .75))+
+  coord_flip()+
+  labs(title = "As a result of taking this course, students can...",
+       y = "Percent agreement",
+       subtitle = "All sites (n = 43)")+
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 50))+
+  theme(plot.title = element_text(size=25, face="bold",hjust = .2,vjust = -1),
+        plot.subtitle = element_text(size=14,hjust = .15,vjust = -1),
+        legend.position = "bottom",legend.text = element_text(size = 12))+
+  theme_bw()
+```
+```{r eval=FALSE, include=FALSE}
+#Viz
+#Likert
+Satisfaction1<-
+  plot(likert1.all, ordered = TRUE)+
+      theme_bw()+
+      theme(legend.title = element_blank(),
+            legend.position = "bottom",
+            legend.text = element_text(size = 10))
+#Binomial
+levels(dd$Question)
+dd$Question <- factor(dd$Question,
+                      levels=(dd$Question)[rev(c(8,9,6,7,4,5,3,2,1))])
+
+Satisfaction2<-
+  ggplot(dd,aes(x=Question))+
+    geom_point(aes(y=med,shape="Observed agreement"),size=2)+
+    geom_hline(aes(yintercept=z*100,color = "Average agreement over all questions"),size = 1.5,linetype="dashed") +
+    geom_errorbar(aes(ymin=lwr,ymax=upr,width = .75))+
+    scale_color_discrete(name = "")+
+    scale_shape_discrete(name = "")+
+    coord_flip()+
+    labs(y = "Percent agreement")+
+    theme_bw()+
+    theme(axis.text.y = element_blank(),
+          axis.title.y = element_blank(),
+          legend.position = "bottom",
+          legend.text = element_text(size = 10))
+
+SatisfactionComb <- Satisfaction1 + Satisfaction2 +
+  plot_annotation(
+    title = "As a result of taking this course, students can...",
+    theme = theme(plot.title = element_text(size = 16)))
+
+SatisfactionComb
+```
+
+#   Multi-site design
+```{r}
+SurveyData_likert2 <- SurveyDataNamed[,c(3,14:16)]
+SurveyData_likert2[1:4] <- lapply(SurveyData_likert2[1:4], factor)
+SurveyData_likert2[2:4] <- lapply(SurveyData_likert2[2:4], factor,
+                                   levels = c("Strongly Disagree","Disagree",
+                                              "Unsure","Agree","Strongly Agree"))
+
+names(SurveyData_likert2)[1] <- "University"
+SurveyData_likert2 %>% 
+  count(University)
+
+#Removing UK from questions due to the alternative lecture format. Erin Harimoto approved 5/17/2023:
+##  Having instructors from other regions and institutions was a valuable part of recorded lectures
+##  Indicate your level of agreement or disagreement with the following: - I would have preferred the lectures be delivered synchronously (live via Zoom or in-person)
+SurveyData_likert2[
+  SurveyData_likert2$University == "University of Kentucky",
+  c("Having instructors from other regions and institutions was a valuable part of recorded lectures",
+    "I would have preferred the lectures be delivered synchronously (live via Zoom or in-person)")]<- NA
+
+
+# Plotting
+## Overall
+likert2.all <- likert(SurveyData_likert2[2:4]) 
+
+#tiff("Figs/Multi-siteDesign/DesignOverll.tiff",width = 8.4, height = 5.31, units = "in", res = 300)
+plot(likert2.all, text.size=4.5, ordered = TRUE)+
+  #labs(title = "Multi-site design",
+       #subtitle = "All sites (n = 43), Question 2\nExcluding University of Kentucky (n = 35), Question 1 & 3")+
+  theme_light(base_size = 16)+
+  theme(legend.title = element_blank(),
+        legend.position = "bottom",
+        legend.justification = 1)+
+  scale_y_continuous(labels = abs, limits = c(-112, 116.5))
+#dev.off()
+```
+
+```{r eval=FALSE, include=FALSE}
+#Site-level
+
+
+##  Cornell
+SurveyData_likert2.Cornell<-SurveyData_likert2 %>% 
+  filter(University == "Cornell University")
+likert2.Cornell <- likert(SurveyData_likert2.Cornell[2:4]) 
+
+tiff("Figs/Multi-siteDesign/DesignCornell.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert2.Cornell, ordered = FALSE)+
+  labs(title = "Multi-site design",
+       subtitle = "Cornell University (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  Clemson
+SurveyData_likert2.Clemson<-SurveyData_likert2 %>% 
+  filter(University == "Clemson University")
+likert2.Clemson <- likert(SurveyData_likert2.Clemson[2:4]) 
+
+tiff("Figs/Multi-siteDesign/DesignClemson.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert2.Clemson,ordered = FALSE)+
+  labs(title = "Multi-site design",
+       subtitle = "Clemson University (n = 4)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  U_Nebraska
+SurveyData_likert2.U_Nebraska<-SurveyData_likert2 %>% 
+  filter(University == "University of Nebraska")
+likert2.U_Nebraska <- likert(SurveyData_likert2.U_Nebraska[2:4]) 
+
+tiff("Figs/Multi-siteDesign/DesignUNL.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert2.U_Nebraska, ordered = FALSE)+
+  labs(title = "Multi-site design",
+       subtitle = "University of Nebraska (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  U_Kentucky - work on
+SurveyData_likert2.UK<-SurveyData_likert2 %>% 
+  filter(University == "University of Kentucky") 
+likert2.U_Kentucky <- likert(SurveyData_likert2.UK[2:4]) 
+
+tiff("Figs/Multi-siteDesign/DesignUK.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert2.U_Kentucky,ordered = FALSE)+
+  labs(title = "Multi-site design",
+       subtitle = "University of Kentucky (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  UNH
+SurveyData_likert2.UNH<-SurveyData_likert2 %>% 
+  filter(University == "University of New Hampshire")
+likert2.UNH <- likert(SurveyData_likert2.UNH[2:4]) 
+
+tiff("Figs/Multi-siteDesign/DesignUNH.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert2.UNH, ordered = FALSE)+
+  labs(title = "Multi-site design",
+       subtitle = "University of New Hampshire (n = 3)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  Michigan State
+SurveyData_likert2.MSU<-SurveyData_likert2 %>% 
+  filter(University == "Michigan State University")
+likert2.MSU <- likert(SurveyData_likert2.MSU[2:4])
+
+tiff("Figs/Multi-siteDesign/DesignMSU.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert2.MSU, ordered = FALSE)+
+  labs(title = "Multi-site design",
+       subtitle = "Michigan State University (n = 12)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+#Table
+SurveyData_likert2_Table<-
+  SurveyData_likert2 %>% 
+    pivot_longer(2:4,names_to = "Question",values_to = "LikertValue") %>% 
+    count(Question, University, LikertValue, .drop = F) %>% 
+    mmtable(.,n) + 
+        header_top(Question) +
+        header_left(LikertValue) + 
+        header_left_top(University)
+SurveyData_likert2_Table
+```
+```{r eval=FALSE, include=FALSE}
+#Confidence intervals
+
+
+# Making the binomial test loop
+## cut_2 =cutoff point for multi-site design
+## z_2 = baseline of average satisfaction for multi-site design
+satisfied_ci_2<-function(x,score=cut_2,baseline=z_2){
+  satisfied<-(x>score)*1 
+  n<-length(x)
+  p<-sum(satisfied)
+  mid<-round(p/n*100,0)
+  b<-binom.test(p,n,baseline, alternative = "two.sided")
+  c(mid,round(b$conf.int*100,0),round(b$p.value,3))
+}
+
+# Data prep
+Likert2_CI<-SurveyData_likert2 %>% 
+  pivot_longer(2:4,names_to = "Question",values_to = "ResponseValue")
+
+Likert2_CI$ResponseValue <- as.numeric(Likert2_CI$ResponseValue)
+unique(Likert2_CI$Question)
+
+cut_2<-3 #cutoff point
+z_2<-sum(Likert2_CI$ResponseValue>cut,na.rm = TRUE)/length(na.omit(Likert2_CI$ResponseValue)) #baseline of average satisfaction
+
+dd_2 <- Likert2_CI %>% group_by(Question)%>% na.omit() %>% 
+  summarise(lwr=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[2],
+            med=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[1],
+            upr=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[3],
+            n=n(),
+            n_sat=sum((ResponseValue>3)*1),
+            p_val=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[4])
+
+#confirming that na.omit worked - looks good! 5/19/2023
+Likert2_CI %>% 
+  filter(
+    Question == "Having instructors from other regions and institutions was a valuable part of recorded lectures") %>% 
+  na.omit() %>% #correctly omitted 8 UK students
+    summarise(lwr=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[2],
+            med=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[1],
+            upr=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[3],
+            n=n(),
+            n_sat=sum((ResponseValue>3)*1),
+            p_val=satisfied_ci_2(ResponseValue,score = cut_2,baseline = z_2)[4])
+
+
+dd_2<-dd_2[order(dd_2$med),]
+dd_2$Question = factor(dd_2$Question, levels=dd_2$Question[order(dd_2$med)], ordered=TRUE)
+
+ggplot(dd_2,aes(x=Question))+
+  geom_point(aes(y=med),colour="red",size=2)+
+  geom_hline(yintercept=z_2*100,
+             col="red",size = 1.5,linetype="dashed") +
+  geom_errorbar(aes(ymin=lwr,ymax=upr,width = .75))+
+  coord_flip()+
+  labs(title = "As a result of taking this course, students can...",
+       y = "Percent agreement",
+       subtitle = "All sites (n = 43), Question 2\nExcluding University of Kentucky (n = 35), Question 1 & 3")+
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 50))+
+  theme(plot.title = element_text(size=25, face="bold",hjust = .2,vjust = -1),
+        plot.subtitle = element_text(size=14,hjust = .15,vjust = -1),
+        legend.position = "bottom",legend.text = element_text(size = 12))+
+  theme_bw()
+```
+```{r eval=FALSE, include=FALSE}
+#Viz
+MultiSiteDes_1<-
+  plot(likert2.all, ordered = TRUE)+
+      theme_bw()+
+      theme(legend.title = element_blank(),
+            legend.position = "bottom",
+            legend.text = element_text(size = 10))
+
+MultiSiteDes_2<-
+  ggplot(dd_2,aes(x=Question))+
+    geom_point(aes(y=med,shape="Observed agreement"),size=2)+
+    geom_hline(aes(yintercept=z_2*100,color = "Average agreement over all questions"),
+               size = 1.5,linetype="dashed") +
+    geom_errorbar(aes(ymin=lwr,ymax=upr,width = .75))+
+    scale_color_discrete(name = "")+
+    scale_shape_discrete(name = "")+
+    coord_flip()+
+    labs(y = "Percent agreement")+
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 50))+
+    theme_bw()+
+    theme(axis.text.y = element_blank(),
+          axis.title.y = element_blank(),
+          legend.position = "bottom",
+          legend.text = element_text(size = 10))
+
+MultiSiteDesComb <- MultiSiteDes_1 + MultiSiteDes_2 +
+  plot_annotation(
+    title = "Students' review of multi-site course design",
+    theme = theme(plot.title = element_text(size = 16)))
+
+MultiSiteDesComb
+```
+
+#   Lab effectivness
+```{r}
+SurveyData_binary1 <- SurveyDataNamed[,c(3,18:19)]
+
+FactorNames <- c("Module 1: CropScape and Web Soil Survey",
+                                              "Module 2: Cover crop challenge: start",
+                                              "Module 3: Cover crop emergence: seed size x planting depth",
+                                              "Module 4: Cover crop ground cover: species x planting rate",
+                                              "Module 5: Online mixture calculators",
+                                              "Module 7: Soil health activities and exercises",
+                                              "Module 8: Cover crop challenge: harvest and multifunctionality",
+                                              "Module 9: Cover crop challenge: weighing samples",
+                                              "Module 10: Cover crop innovations: introduction",
+                                              "Module 11: Cover crop partial budgets",
+                                              "Module 12: Town hall preparation",
+                                              "Module 13: Cover crop innovations: presentations")
+
+
+unique(SurveyData_binary1[,2]) %in% FactorNames #NA not present but that's okay
+unique(SurveyData_binary1[,3]) %in% FactorNames #NA not present but that's okay
+
+SurveyData_binary1[1:3] <- lapply(SurveyData_binary1[1:3], factor)
+SurveyData_binary1[2:3] <- lapply(SurveyData_binary1[2:3], factor,
+                                   levels = c("Module 1: CropScape and Web Soil Survey",
+                                              "Module 2: Cover crop challenge: start",
+                                              "Module 3: Cover crop emergence: seed size x planting depth",
+                                              "Module 4: Cover crop ground cover: species x planting rate",
+                                              "Module 5: Online mixture calculators",
+                                              "Module 7: Soil health activities and exercises",
+                                              "Module 8: Cover crop challenge: harvest and multifunctionality",
+                                              "Module 9: Cover crop challenge: weighing samples",
+                                              "Module 10: Cover crop innovations: introduction",
+                                              "Module 11: Cover crop partial budgets",
+                                              "Module 12: Town hall preparation",
+                                              "Module 13: Cover crop innovations: presentations"),
+                                  labels = c("Module 1: CropScape and Web Soil Survey",
+                                              "Module 2: Cover crop challenge: Start",
+                                              "Module 3: Cover crop emergence: Seed size x planting depth",
+                                              "Module 4: Cover crop ground cover: Species x planting rate",
+                                              "Module 5: Online mixture calculators",
+                                              "Module 7: Soil health activities and exercises",
+                                              "Module 8: Cover crop challenge: Harvest and multifunctionality",
+                                              "Module 9: Cover crop challenge: Weighing samples",
+                                              "Module 10: Cover crop innovations: Introduction",
+                                              "Module 11: Cover crop partial budgets",
+                                              "Module 12: Town hall preparation",
+                                              "Module 13: Cover crop innovations: Presentations"))
+
+names(SurveyData_binary1)[1] <- "University"
+names(SurveyData_binary1)[2] <- "MostEffective"
+names(SurveyData_binary1)[3] <- "LeastEffective"
+
+SurveyData_binary1a<-
+  SurveyData_binary1 %>% 
+    count(University,MostEffective,.drop = FALSE) %>% 
+    rename(Module = MostEffective, MostEffective = n)
+
+SurveyData_binary1b<-
+  SurveyData_binary1 %>% 
+    count(University,LeastEffective,.drop = FALSE) %>% 
+    rename(Module = LeastEffective, LeastEffective = n)
+
+SurveyData_binary1.Full.a <- left_join(SurveyData_binary1a,SurveyData_binary1b)
+
+#Overall
+SurveyData_binary1.FullOverall.a <-
+  SurveyData_binary1 %>% 
+    drop_na(MostEffective) %>%  
+    count(MostEffective,.drop = FALSE) %>% 
+    rename(Module = MostEffective, MostEffective = n) %>% 
+    mutate(Pct_Most = MostEffective/sum(MostEffective))
+
+SurveyData_binary1.FullOverall.b <-
+  SurveyData_binary1 %>% 
+    drop_na(LeastEffective) %>% 
+    count(LeastEffective,.drop = FALSE) %>% 
+    rename(Module = LeastEffective, LeastEffective = n) %>% 
+    mutate(Pct_Least = -1*LeastEffective/sum(LeastEffective))
+
+
+SurveyData_binary1.FullOverallTmp <- full_join(SurveyData_binary1.FullOverall.a,
+                                               SurveyData_binary1.FullOverall.b)
+
+SurveyData_binary1.FullOverall <-
+  SurveyData_binary1.FullOverallTmp %>% 
+    select(-c(MostEffective,LeastEffective)) %>% 
+    pivot_longer(c(Pct_Most,Pct_Least), names_to = "Response",values_to = "Pct")
+
+LabValues <- SurveyData_binary1.FullOverall %>% 
+  group_by(Module) %>% 
+  summarise(Pct_Most = sum(Pct[Pct > 0],na.rm = TRUE)*100,
+            Pct_Least = sum(Pct[Pct < 0],na.rm = TRUE)*100) %>% 
+  arrange(-Pct_Most,-Pct_Least)
+
+SurveyData_binary1.FullOverall.a$Module <-
+  factor(SurveyData_binary1.FullOverall.a$Module,levels = LabValues$Module)
+SurveyData_binary1.FullOverall.b$Module <-
+  factor(SurveyData_binary1.FullOverall.b$Module,levels = LabValues$Module)
+
+#tiff("Figs/LabRatings/LabRatingsOverall.tiff",width = 9.00, height = 5.31, units = "in", res = 300)
+ggplot()+
+  geom_bar(data = SurveyData_binary1.FullOverall.a,
+           aes(x = Module,y = Pct_Most,fill = 'Most effective'),
+           stat = "identity")+
+  geom_text(data = SurveyData_binary1.FullOverall.a, size = 4.12,
+            aes(x = Module,y= 0.30,
+                label=scales::percent(round(Pct_Most,2))))+
+  geom_bar(data = SurveyData_binary1.FullOverall.b,
+           aes(x = Module,y = Pct_Least,fill = 'Least effective'),
+           stat = "identity")+
+  geom_text(data = SurveyData_binary1.FullOverall.b, size = 4.12,
+            aes(x = Module,y= -0.22,
+                label=scales::percent(abs(round(Pct_Least,2)))))+
+  scale_x_discrete(limits=rev)+
+  coord_flip()+
+  geom_hline(yintercept=0, color = "black", size=.2)+
+  labs(x = NULL,y = "Percentage", fill = NULL)+
+       #title = "Lab effectiveness - All sites")+
+  scale_y_continuous(breaks=c(-.20,-.10,0,.10,.20,.30),
+                     labels=c('20', '10', '0',"10","20","30"))+
+  scale_fill_brewer(palette = "Accent",
+                    labels=c('Least effective', 'Most effective'), direction = -1)+
+  theme_light(base_size = 16)+
+  theme(legend.position = "bottom")
+#dev.off()
+```
+
+```{r, eval=FALSE, include=FALSE}
+#Site-specific
+SurveyData_binary1.Full.b <- 
+  SurveyData_binary1.Full.a %>% 
+  group_by(University) %>% 
+  summarize(Pct_Most = MostEffective/sum(MostEffective),
+            Pct_Least = -1*LeastEffective/sum(LeastEffective))
+
+SurveyData_binary1.FullTmp <- cbind(SurveyData_binary1.Full.a,SurveyData_binary1.Full.b[,2:3])
+
+SurveyData_binary1.Full <-
+  SurveyData_binary1.FullTmp %>% 
+    filter(!is.na(Module)) %>% 
+    select(-c(MostEffective,LeastEffective)) %>% 
+    pivot_longer(c(Pct_Most,Pct_Least), names_to = "Response",values_to = "Pct")
+
+tiff("Figs/LabRatings/LabRatingsSites.tiff",width = 8.77, height = 5.52, units = "in", res = 300)
+ggplot(SurveyData_binary1.Full, aes(Module, Pct, fill = Response))+
+  coord_flip()+
+  geom_bar(stat = "identity")+
+  geom_hline(yintercept=0, color = "white", size=.2)+
+  labs(x = NULL,y = NULL, fill = NULL)+
+  scale_x_discrete(limits=rev)+
+  scale_y_continuous(breaks=c(-1,-.5,0,.5,1), labels=c('100%', '50%', '0%',"50%","100%"))+
+  scale_fill_brewer(palette = "Accent", labels=c('Least effective', 'Most effective'),direction = -1)+
+  facet_wrap(~University)+
+  theme_light()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+dev.off()
+```
+
+#   Multi-site activity
+```{r}
+SurveyData_binary2 <- SurveyDataNamed[,c(3,20:21)]
+SurveyData_binary2[1:3] <- lapply(SurveyData_binary2[1:3], factor)
+
+names(SurveyData_binary2)[1] <- "University"
+names(SurveyData_binary2)[2] <- "MostEffective"
+names(SurveyData_binary2)[3] <- "LeastEffective"  
+
+which(unique(SurveyData_binary2$MostEffective) %in% unique(SurveyData_binary2$LeastEffective)==FALSE)
+
+SurveyData_binary2[2:3] <- lapply(SurveyData_binary2[2:3], factor,
+                                   levels = c("1. Course introduction and regional differences",
+                                              "2. Cover crop selector tools",
+                                              "3. Fitting cover crops into rotation: rotation design",
+                                              "4. Fitting cover crops into rotation: adding cover crops",
+                                              "5. Fitting cover crops into rotation: termination options",
+                                              "6. Soil health sampling and testing",
+                                              "7. Spider plot activity from cover crop challenge",
+                                              "8. Cover crops and soil N",
+                                              "9. Farmer innovator panel",
+                                              "10. cover crop challenge results",
+                                              "11. Town hall role-playing",
+                                              "12. Innovator presentations"),
+                                  labels = c("Module 1: Course introduction and regional differences",
+                                              "Module 2: Cover crop selector tools",
+                                              "Module 3: Fitting cover crops into rotation: Rotation design",
+                                              "Module 4: Fitting cover crops into rotation: Adding cover crops",
+                                              "Module 5: Fitting cover crops into rotation: Termination options",
+                                              "Module 7: Soil health sampling and testing",
+                                              "Module 8: Spider plot activity from cover crop challenge",
+                                              "Module 9: Cover crops and soil N",
+                                              "Module 10: Farmer innovator panel",
+                                              "Module 11: Cover crop challenge results",
+                                              "Module 12: Town hall role-playing",
+                                              "Module 13: Innovator presentations"))
+
+#SurveyData_binary2<-SurveyData_binary2 %>% 
+ # mutate(MostEffective = paste("Module ", MostEffective, sep = ""),
+  #       LeastEffective = paste("Module ", LeastEffective, sep = ""),
+   #      across(c(MostEffective, LeastEffective), ~str_replace_all(., "\\.", ":")),
+    #     across(c(MostEffective, LeastEffective), na_if,"Module NA"))
+#SurveyData_binary2<-droplevels(SurveyData_binary2)
+
+SurveyData_binary2a<-
+  SurveyData_binary2 %>% 
+    count(University,MostEffective,.drop = FALSE) %>% 
+    rename(Module = MostEffective, MostEffective = n)
+
+SurveyData_binary2b<-
+  SurveyData_binary2 %>% 
+    count(University,LeastEffective,.drop = FALSE) %>% 
+    rename(Module = LeastEffective, LeastEffective = n)
+
+SurveyData_binary2.Full.a <- left_join(SurveyData_binary2a,SurveyData_binary2b)
+
+##  Overall
+SurveyData_binary2.FullOverall.a <-
+  SurveyData_binary2 %>% 
+    drop_na(MostEffective) %>% 
+    count(MostEffective,.drop = FALSE) %>% 
+    rename(Module = MostEffective, MostEffective = n) %>% 
+    mutate(Pct_Most = MostEffective/sum(MostEffective))
+
+SurveyData_binary2.FullOverall.b <-
+  SurveyData_binary2 %>% 
+    drop_na(LeastEffective) %>%
+    count(LeastEffective,.drop = FALSE) %>% 
+    rename(Module = LeastEffective, LeastEffective = n) %>% 
+    mutate(Pct_Least = -1*LeastEffective/sum(LeastEffective))
+
+SurveyData_binary2.FullOverallTmp <- full_join(SurveyData_binary2.FullOverall.a,
+                                               SurveyData_binary2.FullOverall.b)
+
+SurveyData_binary2.FullOverall <-
+  SurveyData_binary2.FullOverallTmp %>% 
+    select(-c(MostEffective,LeastEffective)) %>% 
+    pivot_longer(c(Pct_Most,Pct_Least), names_to = "Response",values_to = "Pct")
+
+LabValues_Multi <- SurveyData_binary2.FullOverall %>% 
+  group_by(Module) %>% 
+  summarise(Pct_Most = sum(Pct[Pct > 0],na.rm = TRUE)*100,
+            Pct_Least = sum(Pct[Pct < 0],na.rm = TRUE)*100) %>% 
+  arrange(-Pct_Most,-Pct_Least)
+
+SurveyData_binary2.FullOverall.a$Module <-
+  factor(SurveyData_binary2.FullOverall.a$Module,levels = LabValues_Multi$Module)
+SurveyData_binary2.FullOverall.b$Module <-
+  factor(SurveyData_binary2.FullOverall.b$Module,levels = LabValues_Multi$Module)
+
+#tiff("Figs/Multi-siteMeetings/Multi-siteMeetingsOverall.tiff",width = 9, height = 5.31, units = "in", res = 300)
+ggplot()+
+  geom_bar(data = SurveyData_binary2.FullOverall.a,
+           aes(x = Module,y = Pct_Most,fill = 'Most effective'),
+           stat = "identity")+
+  geom_text(data = SurveyData_binary2.FullOverall.a, size = 4.12,
+            aes(x = Module,y= 0.35,
+                label=scales::percent(round(Pct_Most,2))))+
+  geom_bar(data = SurveyData_binary2.FullOverall.b,
+           aes(x = Module,y = Pct_Least,fill = 'Least effective'),
+           stat = "identity")+
+  geom_text(data = SurveyData_binary2.FullOverall.b, size = 4.12,
+            aes(x = Module,y= -0.42,
+                label=scales::percent(abs(round(Pct_Least,2)))))+
+  scale_x_discrete(limits=rev)+
+  coord_flip()+
+  geom_hline(yintercept=0, color = "black", size=.2)+
+  labs(x = NULL,y = "Percentage", fill = NULL)+
+       #title = "Multi-site meeting effectiveness - All sites")+
+  scale_y_continuous(breaks=c(-.4,-.3,-.2,-.1,0,.10,.20,.30),
+                     labels=c('40','30','20', '10',
+                              '0','10','20','30'))+
+  scale_fill_brewer(palette = "Accent", labels=c('Least effective', 'Most effective'),
+                    direction = -1)+
+  theme_light(base_size = 16)+
+  theme(legend.position = "bottom")
+#dev.off()
+```
+
+```{r eval=FALSE, include=FALSE}
+## Sites
+SurveyData_binary2.Full.b <- 
+  SurveyData_binary2.Full.a %>% 
+  group_by(University) %>% 
+  summarize(Pct_Most = MostEffective/sum(MostEffective),
+            Pct_Least = -1*LeastEffective/sum(LeastEffective))
+
+SurveyData_binary2.FullTmp <- cbind(SurveyData_binary2.Full.a,SurveyData_binary2.Full.b[,2:3])
+
+SurveyData_binary2.Full <-
+  SurveyData_binary2.FullTmp %>% 
+    filter(!is.na(Module)) %>% 
+    select(-c(MostEffective,LeastEffective)) %>% 
+    pivot_longer(c(Pct_Most,Pct_Least), names_to = "Response",values_to = "Pct")
+
+#tiff("Figs/Multi-siteMeetings/Multi-siteMeetingsSites.tiff",width = 8.49, height = 5.52, units = "in", res = 300)
+ggplot(SurveyData_binary2.Full, aes(Module, Pct, fill = Response))+
+  coord_flip()+
+  geom_bar(stat = "identity")+
+  geom_hline(yintercept=0, color = "white", size=.2)+
+  labs(x = NULL,y = NULL, fill = NULL)+
+  scale_x_discrete(limits=rev)+
+  scale_y_continuous(breaks=c(-1,-.5,0,.5,1), labels=c('100%', '50%', '0%',"50%","100%"))+
+  scale_fill_brewer(palette = "Accent", labels=c('Least effective', 'Most effective'),direction = -1)+
+  facet_wrap(~University)+
+  theme_light()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+#dev.off()
+```
+
+
+Extra- Might not run!!!
+#   Cover crop activity
+```{r}
+SurveyData_likert3 <- SurveyDataNamed[,c(3,23:29)]
+SurveyData_likert3[1:8] <- lapply(SurveyData_likert3[1:8], factor)
+SurveyData_likert3[2:8] <- lapply(SurveyData_likert3[2:8], factor,
+                                   levels = c("Strongly Disagree","Disagree",
+                                              "Unsure","Agree","Strongly Agree"))
+
+names(SurveyData_likert3)[1] <- "University"
+SurveyData_likert3 %>% 
+  count(University)
+
+# Get the current column names of the data frame
+SurveyData_likert3.col_names <- colnames(SurveyData_likert3)
+
+# Remove the string "As a result of taking this course I can" from each column name
+SurveyData_likert3.col_names_newTmp <- gsub("Indicate your level of agreement or disagreement with the following statements relating to the cover crop challenge: - ",
+                                            "", SurveyData_likert3.col_names)
+SurveyData_likert3.col_names_newTmp <- str_to_sentence(SurveyData_likert3.col_names_newTmp)
+SurveyData_likert3.col_names_new <- gsub("\\.", "",SurveyData_likert3.col_names_newTmp)
+
+# Replace the original column names with the new names
+colnames(SurveyData_likert3) <- SurveyData_likert3.col_names_new
+colnames(SurveyData_likert3)[8] <- "As a result of this activity, I can more confidently convert values to different units"
+
+# Ploting
+##  Overall
+likert3.Overall <- likert(SurveyData_likert3[2:8]) 
+
+tiff("Figs/CoverCropChallenge/challengeOverall.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert3.Overall, ordered = TRUE)+
+  labs(title = "As a result of the cover crop challenge...",
+       subtitle = "All sites (n = 43)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  Cornell
+SurveyData_likert3.Cornell<-SurveyData_likert3 %>% 
+  filter(University == "Cornell University")
+likert3.Cornell <- likert(SurveyData_likert3.Cornell[2:8]) 
+
+tiff("Figs/CoverCropChallenge/challengeCornell.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert3.Cornell, ordered = TRUE)+
+  labs(title = "As a result of the cover crop challenge...",
+       subtitle = "Cornell University (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  Clemson
+SurveyData_likert3.Clemson<-SurveyData_likert3 %>% 
+  filter(University == "Clemson University")
+likert3.Clemson <- likert(SurveyData_likert3.Clemson[2:8]) 
+
+tiff("Figs/CoverCropChallenge/challengeClemson.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert3.Clemson,ordered = TRUE)+
+  labs(title = "As a result of the cover crop challenge...",
+       subtitle = "Clemson University (n = 4)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  U_Nebraska
+SurveyData_likert3.U_Nebraska<-SurveyData_likert3 %>% 
+  filter(University == "University of Nebraska")
+likert3.U_Nebraska <- likert(SurveyData_likert3.U_Nebraska[2:8]) 
+
+tiff("Figs/CoverCropChallenge/challengeUNL.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert3.U_Nebraska, ordered = TRUE)+
+  labs(title = "As a result of the cover crop challenge...",
+       subtitle = "University of Nebraska (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  U_Kentucky - work on
+SurveyData_likert3.UK<-SurveyData_likert3 %>% 
+  filter(University == "University of Kentucky") 
+likert3.U_Kentucky <- likert(SurveyData_likert3.UK[2:8]) 
+
+tiff("Figs/CoverCropChallenge/challengeUK.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert3.U_Kentucky,ordered = TRUE)+
+  labs(title = "As a result of the cover crop challenge...",
+       subtitle = "University of Kentucky (n = 8)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  UNH
+SurveyData_likert3.UNH<-SurveyData_likert3 %>% 
+  filter(University == "University of New Hampshire")
+likert3.UNH <- likert(SurveyData_likert3.UNH[2:8]) 
+
+tiff("Figs/CoverCropChallenge/challengeUNH.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert3.UNH, ordered = TRUE)+
+  labs(title = "As a result of the cover crop challenge...",
+       subtitle = "University of New Hampshire (n = 3)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+##  Michigan State
+SurveyData_likert3.MSU<-SurveyData_likert3 %>% 
+  filter(University == "Michigan State University")
+likert3.MSU <- likert(SurveyData_likert3.MSU[2:8]) 
+
+tiff("Figs/CoverCropChallenge/challengeMSU.tiff",width = 9, height = 5.84, units = "in", res = 300)
+plot(likert3.MSU, ordered = TRUE)+
+  labs(title = "As a result of the cover crop challenge...",
+       subtitle = "Michigan State University (n = 12)")+
+  theme(legend.title = element_blank())
+dev.off()
+
+#Table
+SurveyData_likert3_Table<-
+  SurveyData_likert3 %>% 
+    pivot_longer(2:8,names_to = "Question",values_to = "LikertValue") %>% 
+    count(Question, University, LikertValue, .drop = F) %>% 
+    mmtable(.,n) + 
+        header_top(Question) +
+        header_left(LikertValue) + 
+        header_left_top(University)
+SurveyData_likert3_Table
+```
+
+#   Cover crop ratings
+```{r}
+SurveyData_Growth <- SurveyDataNamed[,c(3,31)]
+colnames(SurveyData_Growth)[2] <- "GrowthRating"
+colnames(SurveyData_Growth)[1] <- "University"
+
+SurveyData_Growth<-
+  SurveyData_Growth %>% 
+    mutate(GrowthRating = dplyr::recode(GrowthRating, "1 (poor)" = "1", "5 (excellent)" = "5")) %>% 
+    filter(!is.na(GrowthRating))
+
+SurveyData_Growth$GrowthRating <- as.numeric(as.character(SurveyData_Growth$GrowthRating))
+
+
+tiff("Figs/CoverCropGrowth.tiff",width = 7, height = 5.84, units = "in", res = 300)
+ggplot(SurveyData_Growth, aes(x = GrowthRating, y = University)) +
+  ggridges::geom_density_ridges(aes(fill = University, alpha = .5)) +
+  labs(x = "Cover crop growth rating",y=NULL)+
+  scale_y_discrete(limits=rev)+
+  expand_limits(y = 8)+
+  theme_light(base_size = 14)+
+  theme(legend.position = "none")
+dev.off()
+
+#Everything - Not going to include
+ggplot(SurveyData_Growth, aes(x = GrowthRating)) +
+  geom_density(fill = "lightblue", alpha = .75) +
+  labs(x = "Cover crop growth rating",y=NULL)+
+  theme_light(base_size = 14)+
+  theme(legend.position = "none")
+```
+
+#Correlations
+```{r}
+SurveyData_Corr <- SurveyDataNamed[,c(3,23:29,31)]
+
+colnames(SurveyData_Corr)[1] <- "University"
+colnames(SurveyData_Corr)[9] <- "GrowthRating"
+
+SurveyData_Corr<-
+  SurveyData_Corr %>% 
+    mutate(GrowthRating = dplyr::recode(GrowthRating, "1 (poor)" = "1", "5 (excellent)" = "5"))
+SurveyData_Corr$GrowthRating <- as.numeric(as.character(SurveyData_Corr$GrowthRating))
+
+SurveyData_Corr[1:8] <- lapply(SurveyData_Corr[1:8], factor)
+SurveyData_Corr[2:8] <- lapply(SurveyData_Corr[2:8], factor,
+                                   levels = c("Strongly Disagree","Disagree",
+                                              "Unsure","Agree","Strongly Agree"),
+                                    labels = c(1,2,3,4,5))
+SurveyData_Corr[2:8] <- lapply(SurveyData_Corr[2:8], as.numeric)
+
+# Get the current column names of the data frame
+SurveyData_Corr.col_names <- colnames(SurveyData_Corr)
+
+# Remove the string "As a result of taking this course I can" from each column name
+SurveyData_Corr.col_names_newTmp <- gsub("Indicate your level of agreement or disagreement with the following statements relating to the cover crop challenge: - ",
+                                            "", SurveyData_Corr.col_names)
+SurveyData_Corr.col_names_newTmp <- str_to_sentence(SurveyData_Corr.col_names_newTmp)
+SurveyData_Corr.col_names_new <- gsub("\\.", "",SurveyData_Corr.col_names_newTmp)
+
+# Replace the original column names with the new names
+colnames(SurveyData_Corr) <- SurveyData_Corr.col_names_new
+library(broom.mixed)
+
+SurveyData_Corr %>% 
+  pivot_longer(2:8, names_to = "Question", values_to = "LikertValue") %>% 
+  nest_by(Question) %>% 
+  mutate(mod = list(lmerTest::lmer(LikertValue ~ Growthrating + (1|University),
+                                   data = data))) %>% 
+  summarize(Effect = tidy(mod)$estimate, P.value = tidy(mod)$p.value)
+```
+
