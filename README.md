@@ -1,6 +1,6 @@
-# An interactive leanring activity: The Cover Crop Challenge
+# An interactive learning activity: The Cover Crop Challenge
 
-Analysis and data for the publication: **"The Cover Crop Challenge: An experiential learning activity for teaching students about cover crop mixtures"**
+Analysis and data for the publication: [**"The Cover Crop Challenge: An experiential learning activity for teaching students about cover crop mixtures"**](https://doi.org/10.1002/nse2.70002)
 
 ## Background
 
@@ -8,13 +8,13 @@ Cover crop mixtures can provide a broader range of ecosystem services than monoc
 
 A post-course survey (n = 78) found that 97% of respondents considered the Cover Crop Challenge a valuable activity. Students reported improved understanding of ecological, agronomic, and economic principles related to cover cropping, and positive correlations were found between perceived value of the activity and accomplishment of course-wide learning objectives.
 
-The protocol, report instructions, and excel file given to students for this activity can be found in the `student_materials` folder of this repository. 
+The protocol, report instructions, and excel file given to students for this activity can be found in the `student_materials` folder of this repository.
 
 ## Data
 
 All raw data are in the `data/` folder, organized by year:
 
-```
+```         
 data/
 ├── 2022 Data/
 │   ├── CoverCropChallenge_Results2022.xlsx   # Greenhouse and field performance data (2022)
@@ -26,24 +26,16 @@ data/
     └── CoverCropSurvey2023_Cleaned.xlsx      # Cleaned student survey responses (2023)
 ```
 
-**Challenge results workbooks** contain multiple sheets:
-- `Greenhouse` — total biomass (g/pot and lb/a), family-level biomass, family evenness, economic efficiency, and expense per acre for greenhouse-grown mixtures
-- `Outside` — same metrics for field-grown mixtures (biomass in g/0.25m²)
-- `Ecosystem services axes` — student ratings across eight ecosystem service dimensions (used for radar/spider plots)
+**Challenge results workbooks** contain multiple sheets: - `Greenhouse` — total biomass (g/pot and lb/a), family-level biomass, family evenness, economic efficiency, and expense per acre for greenhouse-grown mixtures - `Outside` — same metrics for field-grown mixtures (biomass in g/0.25m²) - `Ecosystem services axes` — student ratings across eight ecosystem service dimensions (used for radar/spider plots)
 
-**Survey workbooks** contain Likert-scale and binary-choice responses covering:
-- Overall course satisfaction and learning objective achievement (9 items, 5-point scale)
-- Most and least effective lab modules
-- Most and least effective multi-site meeting activities
-- Cover Crop Challenge-specific agreement statements (7 items, 5-point scale)
-- Student growth ratings and correlation items
+**Survey workbooks** contain Likert-scale and binary-choice responses covering: - Overall course satisfaction and learning objective achievement (9 items, 5-point scale) - Most and least effective lab modules - Most and least effective multi-site meeting activities - Cover Crop Challenge-specific agreement statements (7 items, 5-point scale) - Student growth ratings and correlation items
 
 ## Analysis
 
 All analysis is in `code/CC_Challenge.Rmd`. The main sections are:
 
 | Section | Description |
-|---|---|
+|------------------------------------|------------------------------------|
 | Loading | Read and merge 2022/2023 survey data; assign university-to-state mapping |
 | Map of students | Choropleth map of participating universities by year |
 | Overall satisfaction | Likert plots of course-level learning objective agreement, split by setting (greenhouse-only vs. greenhouse + field) |
@@ -59,5 +51,3 @@ All analysis is in `code/CC_Challenge.Rmd`. The main sections are:
 Key packages: `tidyverse`, `likert`, `ggstats`, `patchwork`, `openxlsx`, `janitor`, `fmsb`, `gt`
 
 All student names have been removed from the data uploaded to GitHub.
-
-
