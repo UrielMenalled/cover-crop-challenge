@@ -9,7 +9,6 @@ Stephene Perry from Cornell Stats Consulting recommends against additional stati
 
 #   Loading
 ```{r}
-setwd("/Users/udm3/Library/CloudStorage/Box-Box/Cover Crops in Agroecosystems - Internal/Analysis")
 
 library(openxlsx)
 library(maps)
@@ -18,14 +17,15 @@ library(patchwork)
 library(janitor)
 library(tidyverse)
 library(ggstats)
+library(here)
 
 library(ggplot2); theme_set(theme_bw() + 
                             theme(panel.grid = element_line(colour = "grey87"),
                                   panel.grid.major = element_line(linewidth = rel(.95)), 
                                   panel.grid.minor = element_line(linewidth = 0)))
 
-SurveyData_22 <- read.xlsx("2022 Data/CoverCropSurvey2022_Cleaned.xlsx", sheet = 1)
-SurveyData_23 <- read.xlsx("2023 Data/CoverCropSurvey2023_Cleaned.xlsx", sheet = 1)
+SurveyData_22 <- read.xlsx("data/2022 Data/CoverCropSurvey2022_Cleaned.xlsx", sheet = 1)
+SurveyData_23 <- read.xlsx("data/2023 Data/CoverCropSurvey2023_Cleaned.xlsx", sheet = 1)
 
 SurveyData_22$Year <- 2022
 SurveyData_23$Year <- 2023
@@ -104,8 +104,8 @@ names(Year.labs) <- c("2022", "2023")
     theme(strip.text = ggtext::element_markdown(size = 18, hjust = 0.05))+
     facet_wrap(~Year, nrow = 1,
                labeller = labeller(Year = Year.labs))
-#ggsave("MapPlot.png",MapPlot, width = 7.4, height = 3.3, units = "in", dpi = 600)
-#ggsave("COMP_MapPlot.png",MapPlot, width = 7.4, height = 3.3, units = "in", dpi = 100)
+#ggsave("outputs/MapPlot.png",MapPlot, width = 7.4, height = 3.3, units = "in", dpi = 600)
+#ggsave("outputs/COMP_MapPlot.png",MapPlot, width = 7.4, height = 3.3, units = "in", dpi = 100)
 ```
 
 #   Overall Satisfaction
@@ -142,7 +142,7 @@ likert1.all <- likert(SurveyData_likert1[3:11])
     theme(legend.title = element_blank(),
           legend.position = "bottom",
           legend.justification = 1)
-#ggsave("Overall_Rev.png", Overall_Rev, width = 6.55, height = 5.3, units = "in", dpi = 600)
+#ggsave("outputs/Overall_Rev.png", Overall_Rev, width = 6.55, height = 5.3, units = "in", dpi = 600)
 
 ##Setting
 SurveyData_likert1 <- 
@@ -277,7 +277,7 @@ SurveyData_binary1.FullOverall$Year.Mod <-
     ylim(-50,50)+
     theme(legend.position = "bottom")+
     facet_wrap(~Year, nrow = 2, scales = "free_y")
-#ggsave("LabPlot.svg",LabPlot,width = 5.12, height = 5.95, units = "in", dpi = 600)
+#ggsave("outputs/LabPlot.svg",LabPlot,width = 5.12, height = 5.95, units = "in", dpi = 600)
 
 #Table----
 #How is CCC capitalized?
@@ -497,7 +497,7 @@ likert3.Overall <- likert(SurveyData_likert3[3:9])
           legend.position = "bottom",
           legend.justification = 1)
 
-#ggsave("CCC_Rev.png", CCC_Rev, width = 6.55, height = 5, units = "in", dpi = 600)
+#ggsave("outputs/CCC_Rev.png", CCC_Rev, width = 6.55, height = 5, units = "in", dpi = 600)
 
 ##Split
 SurveyData_likert3 <- 
@@ -521,7 +521,7 @@ CCC_Rev_split <-
   theme(strip.text.x = ggtext::element_markdown(size = 12, hjust = 0),
         legend.position = "bottom",
         panel.border = element_rect(color = "black", fill = NA, size = .5))
-#ggsave("CCC_Rev_Split.png", CCC_Rev_split, width = 8.35, height = 4.45, units = "in", dpi = 600)
+#ggsave("outputs/CCC_Rev_Split.png", CCC_Rev_split, width = 8.35, height = 4.45, units = "in", dpi = 600)
 
 ##Years
 SurveyData_likert3.22<-SurveyData_likert3 %>% 
@@ -824,7 +824,7 @@ RatingPatch <-
     plot_annotation(tag_levels = list(c("a.","b."))) &
     theme(plot.tag.position =  "topleft",
           plot.tag = element_text(size = rel(1.65)))
-#ggsave("RatingPlot.png", RatingPatch, width = 7.265, height = 2.8, units = "in", dpi = 600)
+#ggsave("outputs/RatingPlot.png", RatingPatch, width = 7.265, height = 2.8, units = "in", dpi = 600)
 
 SurveyData_Corr2_split  <- 
   SurveyData_Corr2 %>% 
@@ -856,7 +856,7 @@ RatingPatch_sep <-
     plot_annotation(tag_levels = list(c("a.","b."))) &
     theme(plot.tag.position =  "topleft",
           plot.tag = element_text(size = rel(1.65)))
-ggsave("RatingPatch_sep.png", RatingPatch_sep, width = 6.49, height = 6.02, units = "in", dpi = 600)
+#ggsave("outputs/RatingPatch_sep.png", RatingPatch_sep, width = 6.49, height = 6.02, units = "in", dpi = 600)
 ```
 
 ```{r split}
@@ -904,15 +904,15 @@ writeData(Split_wb, "Overall_Both", resultBoth_df)
 writeData(Split_wb, "CCC_GH", resultGH_df2)
 writeData(Split_wb, "CCC_Both", resultBoth_df2)
 
-#saveWorkbook(Split_wb,"SplitCorrTableRaw.xlsx",overwrite = T)
+#saveWorkbook(Split_wb,"outputs/SplitCorrTableRaw.xlsx",overwrite = T)
 ```
 
 #Example
 The different number of students will come from the fact that all students submitted the challenge
 ```{r Comp}
-GreenhouseExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+GreenhouseExample23 <- read.xlsx("data/2023 Data/CoverCropChallenge_Results2023.xlsx",
                                sheet = "Greenhouse")
-FieldExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+FieldExample23 <- read.xlsx("data/2023 Data/CoverCropChallenge_Results2023.xlsx",
                           sheet = "Outside")
 
 GreenhouseExample23 <- drop_na(GreenhouseExample23)
@@ -1029,11 +1029,11 @@ CompPatch2<-
                 heights = c(1,.18,.0005,1,1))&
     labs(x="Student")&
     theme(legend.position = "bottom")
-#ggsave("CompPatch.png",CompPatch2,width = 6.6, height = 6.2, units = "in", dpi = 600)
+#ggsave("outputs/CompPatch.png",CompPatch2,width = 6.6, height = 6.2, units = "in", dpi = 600)
 ```
 
 ```{r Tables}
-TableExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+TableExample23 <- read.xlsx("data/2023 Data/CoverCropChallenge_Results2023.xlsx",
                                sheet = "Seeding rate (lbs ac)")
 TableExample23 <- drop_na(TableExample23)
 TableExample23 <- semi_join(TableExample23, GreenhouseExample23, by = c("State", "Name")) #sub-setting to get the same students as the plots
@@ -1095,12 +1095,12 @@ bind_rows(mutate(TableExample_GBiomass,
               table.width = "80%",
               heading.padding = px(1.5), column_labels.padding = px(1.5),
               row_group.padding = px(5), data_row.padding = px(1.5)) #%>%
-  #gtsave("test2.docx")
+  #gtsave("outputs/test2.docx")
 ```
 
 
 ```{r Spider}
-SpiderExample23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+SpiderExample23 <- read.xlsx("data/2023 Data/CoverCropChallenge_Results2023.xlsx",
                                sheet = "Ecosystem services axes")
 SpiderExample23 <- drop_na(SpiderExample23) #remove MSU (MI) students
 SpiderExample23 <- semi_join(SpiderExample23, GreenhouseExample23, by = c("State", "Name")) #sub-setting to get the same students as the plots
@@ -1135,9 +1135,9 @@ dev.off()
 # Range
 ```{r}
 #2022 prep
-GreenhouseRange22 <- read.xlsx("2022 Data/CoverCropChallenge_Results2022.xlsx",
+GreenhouseRange22 <- read.xlsx("data/2022 Data/CoverCropChallenge_Results2022.xlsx",
                                sheet = "Greenhouse")
-FieldRange22 <- read.xlsx("2022 Data/CoverCropChallenge_Results2022.xlsx",
+FieldRange22 <- read.xlsx("data/2022 Data/CoverCropChallenge_Results2022.xlsx",
                           sheet = "Outside")
 
 GreenhouseRange22 <- drop_na(GreenhouseRange22) %>% mutate(Year = "2022", .before = State)
@@ -1145,9 +1145,9 @@ FieldRange22 <- drop_na(FieldRange22) %>% mutate(Year = "2022", .before = State)
 
 
 #2023 prep
-GreenhouseRange23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+GreenhouseRange23 <- read.xlsx("data/2023 Data/CoverCropChallenge_Results2023.xlsx",
                                sheet = "Greenhouse")
-FieldRange23 <- read.xlsx("2023 Data/CoverCropChallenge_Results2023.xlsx",
+FieldRange23 <- read.xlsx("data/2023 Data/CoverCropChallenge_Results2023.xlsx",
                           sheet = "Outside")
 
 GreenhouseRange23 <- drop_na(GreenhouseRange23) %>% mutate(Year = "2023", .before = State)
@@ -1213,176 +1213,20 @@ RangeSumTab %>%
 
 pot values in paper
 ```{r eval=FALSE, include=FALSE}
-GreenhouseRange %>% 
-  group_by(Year) %>% 
-  select(Year, State, Name,
-         `Total.biomass.(g/pot)`,
-         `Total.biomass.(lb/a)`) %>% 
-  slice_max(`Total.biomass.(g/pot)`, n=1) %>% 
-  mutate(`Total.biomass.(kg/ha)` = `Total.biomass.(lb/a)` * 1.12085)
+# GreenhouseRange %>% 
+#   group_by(Year) %>% 
+#   select(Year, State, Name,
+#          `Total.biomass.(g/pot)`,
+#          `Total.biomass.(lb/a)`) %>% 
+#   slice_max(`Total.biomass.(g/pot)`, n=1) %>% 
+#   mutate(`Total.biomass.(kg/ha)` = `Total.biomass.(lb/a)` * 1.12085)
 
-GreenhouseRange %>% 
-  group_by(Year) %>% 
-  select(Year, State, Name,
-         `Total.biomass.(g/pot)`,
-         `Total.biomass.(lb/a)`) %>% 
-  slice_min(`Total.biomass.(g/pot)`, n=1) %>% 
-  mutate(`Total.biomass.(kg/ha)` = `Total.biomass.(lb/a)` * 1.12085)
+# GreenhouseRange %>% 
+#   group_by(Year) %>% 
+#   select(Year, State, Name,
+#          `Total.biomass.(g/pot)`,
+#          `Total.biomass.(lb/a)`) %>% 
+#   slice_min(`Total.biomass.(g/pot)`, n=1) %>% 
+#   mutate(`Total.biomass.(kg/ha)` = `Total.biomass.(lb/a)` * 1.12085)
 ```
-
-#old
-old comp
-```{r}
-GreenhouseExample <- read.xlsx("CC_Challenge/CoverCropChallenge23_data.xlsx", sheet = "Greenhouse_ed")
-
-GreenhouseBiomass <-
-  GreenhouseExample %>% 
-    select(Subject,ends_with("_g.m2")) %>% 
-    rename_with(~gsub("Biomass_g.m2", "", .), everything()) %>% 
-    pivot_longer(cols = -Subject, names_to = "Family",values_to = "Biomass_g.m2") %>% 
-  ggplot(.,aes(Subject,Biomass_g.m2,fill = Family))+
-    geom_bar(stat = "identity")+
-    viridis::scale_fill_viridis(discrete = TRUE, begin = 0, end = .9)+
-    labs(x = NULL,
-          y=expression(paste("Crop biomass (g m"^-2,")",sep = "")),
-         fill = NULL)+
-    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))+
-    scale_y_continuous(labels = scales::comma)+
-    theme(legend.position = "bottom",
-          legend.text = element_text(face = "italic"))+
-    facet_wrap(~"Greenhouse")
-
-GreenhouseEvenness <-
-  GreenhouseExample %>% 
-    select(Subject,ObservedFamilyEvenness) %>% 
-    rename(Evenness=ObservedFamilyEvenness) %>% 
-  ggplot(.,aes(Subject,Evenness))+
-    geom_bar(stat = "identity")+
-    labs(x = NULL)+
-    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))
-
-GreenhouseEcon <-
-  GreenhouseExample %>% 
-    select(Subject,`EconomicEfficiency_kg.$`) %>% 
-  ggplot(.,aes(Subject,`EconomicEfficiency_kg.$`))+
-    geom_bar(stat = "identity")+
-    labs(x = NULL,
-         y=expression(atop("Economic efficiency", paste("(kg crop biomass dollar"^-1,")",sep = ""))))+
-    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))+
-    scale_y_continuous(labels = scales::comma)
-
-FieldExample <- read.xlsx("CC_Challenge/CoverCropChallenge23_data.xlsx", sheet = "Field_ed")
-
-FieldBiomass <-
-  FieldExample %>% 
-    select(Subject,ends_with("_g.m2")) %>% 
-    rename_with(~gsub("Biomass_g.m2", "", .), everything()) %>% 
-    pivot_longer(cols = -Subject, names_to = "Family",values_to = "Biomass_g.m2") %>% 
-  ggplot(.,aes(Subject,Biomass_g.m2,fill = Family))+
-    geom_bar(stat = "identity")+
-    viridis::scale_fill_viridis(discrete = TRUE, begin = 0, end = .9)+
-    labs(x = NULL,
-         y=expression(paste("Crop biomass (g m"^-2,")",sep = "")),
-         fill = NULL)+
-    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))+
-    theme(legend.position = "bottom",
-          legend.text = element_text(face = "italic"))+
-    facet_wrap(~"Field")
-
-FieldEvenness <-
-  FieldExample %>% 
-    select(Subject,ObservedFamilyEvenness) %>% 
-    rename(Evenness=ObservedFamilyEvenness) %>% 
-  ggplot(.,aes(Subject,Evenness))+
-    geom_bar(stat = "identity")+
-    labs(x = NULL)+
-    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))
-
-FieldEcon <-
-  FieldExample %>% 
-    select(Subject,`EconomicEfficiency_kg.$`) %>% 
-  ggplot(.,aes(Subject,`EconomicEfficiency_kg.$`))+
-    geom_bar(stat = "identity")+
-    labs(x = NULL,
-         y=expression(atop("Economic efficiency", paste("(kg crop biomass dollar"^-1,")",sep = ""))))+
-    scale_x_discrete(labels = c("Student 1", "Student 2", "Student 3", expression("Student"~italic(n))))
-
-#Patching
-
-#CompPatch1 <-
-  GreenhouseBiomass+FieldBiomass+GreenhouseEvenness+FieldEvenness+GreenhouseEcon+FieldEcon+
-    plot_layout(axis_titles = "collect_y", guides = "collect", nrow = 3)&
-    theme(legend.position = "bottom")
-#ggsave("CompPatch.png",CompPatch1,width = 6.75, height = 5.8, units = "in", dpi = 600)
-
-layout <- "
-AB
-CC
-DD
-EF
-GH
-"
-
-CompPatch2<-
-  GreenhouseBiomass+FieldBiomass+guide_area()+plot_spacer()+
-    GreenhouseEvenness+FieldEvenness+GreenhouseEcon+FieldEcon+
-    plot_layout(axis_titles = "collect_y", guides = "collect", design = layout,
-                heights = c(1,.18,.0005,1,1))&
-    theme(legend.position = "bottom")  
-
-
-tmp <-
-  GreenhouseExample %>% 
-    select(Name,ends_with(".biomass.(g/pot)")&!starts_with("Total")) %>% 
-    rename_with(~gsub("\\.biomass\\.\\(g/pot\\)", "", .), everything()) %>% 
-    pivot_longer(cols = -Name, names_to = "Family",values_to = "Biomass_g.pot")
-tmp$Family
-
-library(mmtable2)
-```
-
-combo
-```{r}  
-SpiderFun2 <- function(x) {
-  fmsb::radarchart(x,axistype=1,
-                   pcol=rgb(0.2,0.5,0.5,0.9) , pfcol=rgb(0.2,0.5,0.5,0.5),plwd=2,
-                   cglcol="grey", cglty=1,
-                   axislabcol="grey10",caxislabels=seq(1,5,1), cglwd=0.8,
-                   vlcex=.75)}
-
-
-layout2 <- "
-AB
-CD
-EE
-FF
-GH
-IJ
-"
-p1<-wrap_elements(~SpiderFun2(SpiderExample_S1b)+
-                    title("Student 1",adj = 0.2,line = 1,cex.main = .9),
-                  clip = TRUE)
-p2<-wrap_elements(~SpiderFun2(SpiderExample_S2b)+
-                    title("Student 2",adj = 0.2,line = 1,cex.main = .9),
-                  clip = TRUE)
-
-par(mar = c(0, 0, 2, 0))
-
-StudentPatch <-
-  p1+p2+
-  GreenhouseBiomass+FieldBiomass+
-  guide_area()+
-  plot_spacer()+
-  GreenhouseEvenness+FieldEvenness+
-  GreenhouseEcon+FieldEcon+
-    plot_layout(axis_titles = "collect_y", guides = "collect", design = layout2,
-                heights = c(1.4,.7,.05,-.13,.7,.7))+
-    plot_annotation(tag_levels = list(c("a","","b", rep("",7))))&
-    theme(plot.tag = element_text(size = 15)) #the error is because of the blanks, not an issues
-
-outPut<-print(StudentPatch, vp=grid::viewport(gp=grid::gpar(cex=.75)))
-ggsave("BigTest.png")
-dev.off()
-```
-
 
