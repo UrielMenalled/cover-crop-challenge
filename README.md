@@ -8,7 +8,7 @@ Cover crop mixtures can provide a broader range of ecosystem services than monoc
 
 A post-course survey (n = 78) found that 97% of respondents considered the Cover Crop Challenge a valuable activity. Students reported improved understanding of ecological, agronomic, and economic principles related to cover cropping, and positive correlations were found between perceived value of the activity and accomplishment of course-wide learning objectives.
 
-The protocol, report instructions, and excel file given to students for this activity can be found in the "student_materials" folder. 
+The protocol, report instructions, and excel file given to students for this activity can be found in the `student_materials` folder of this repository. 
 
 ## Data
 
