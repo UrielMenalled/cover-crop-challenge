@@ -1,6 +1,7 @@
 # An interactive learning activity: The Cover Crop Challenge
 
 Analysis and data for the publication: [**"The Cover Crop Challenge: An experiential learning activity for teaching students about cover crop mixtures"**](https://doi.org/10.1002/nse2.70002)
+This repository is also archived on Zenodo for long-term storage: [![DOI](https://zenodo.org/badge/1212839828.svg)](https://doi.org/10.5281/zenodo.19631484)
 
 ## Background
 
